@@ -12,7 +12,7 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev --legacy-peer-deps
 
 COPY . .
 
