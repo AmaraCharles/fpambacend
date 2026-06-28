@@ -24,7 +24,7 @@ const roleConfigSchema = new Schema({
     type: String,
     required: true,
     unique: true,
-    enum: ['Field Agent', 'Supervisor', 'GIS Analyst', 'System Admin'],
+    enum: ['Field Agent', 'Sub-Head', 'Supervisor', 'GIS Analyst', 'System Admin'],
   },
   defaults:  { type: defaultsSchema, default: () => ({}) },
   updatedBy: { type: Types.ObjectId, ref: 'User' },
@@ -49,6 +49,25 @@ roleConfigSchema.statics.FACTORY_DEFAULTS = {
     canBulkExport:     false,
     maxPhotosPerAsset: 50,
     maxAssetsPerDay:   100,
+  },
+  // Sub-Head — one rung above Field Agent. Can capture assets like a Field
+  // Agent, but also reviews/approves (or rejects) captures submitted by
+  // Field Agents before they count as verified registry entries.
+  'Sub-Head': {
+    canCreateAssets:   true,
+    canEditAssets:     false,
+    canDeleteAssets:   false,
+    canApproveAssets:  true,
+    canExportData:     false,
+    canRunOCR:         true,
+    canManageUsers:    false,
+    canViewAnalytics:  false,
+    canViewAuditLog:   false,
+    canChangeSettings: false,
+    canBulkDelete:     false,
+    canBulkExport:     false,
+    maxPhotosPerAsset: 50,
+    maxAssetsPerDay:   null,
   },
   'Supervisor': {
     canCreateAssets:   true,

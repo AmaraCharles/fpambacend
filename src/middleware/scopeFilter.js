@@ -4,8 +4,10 @@
  * Roles that can see all assets regardless of who captured them.
  * Field Agents can VIEW all assets — they're restricted from
  * delete/manage operations by requirePerm(), not by scope.
+ * Sub-Head also needs full visibility — they have to see other
+ * Field Agents' pending captures in order to review/approve them.
  */
-const GLOBAL_ROLES = ['System Admin', 'Supervisor', 'GIS Analyst', 'Field Agent'];
+const GLOBAL_ROLES = ['System Admin', 'Supervisor', 'Sub-Head', 'GIS Analyst', 'Field Agent'];
 
 function scopeFilter(req, res, next) {
   const user = req.user;

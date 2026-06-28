@@ -45,7 +45,7 @@ const lifecycleHistorySchema = new Schema({
 
 // ── Main asset schema ─────────────────────────────────────────────────────────
 const assetSchema = new Schema({
-  assetId: { type: String, required: true, unique: true, index: true },
+  assetId: { type: String, required: true, unique: true },
   name:    { type: String, required: true, trim: true },
 
   type: {
@@ -75,6 +75,22 @@ const assetSchema = new Schema({
   typeData: { type: Schema.Types.Mixed, default: {} },
 
   capturedBy: { type: Types.ObjectId, ref: 'User' },
+
+  // ── Approval workflow ────────────────────────────────────────────────────
+  // New captures from roles without auto-approve privilege sit as 'Pending'
+  // until a Sub-Head, Supervisor, or System Admin reviews them. System Admin
+  // captures are auto-approved at creation (see services/assetService.js).
+  // Default stays 'Approved' so existing/legacy documents and bulk imports
+  // that predate this field are never accidentally hidden from the registry.
+  approvalStatus: {
+    type:    String,
+    enum:    ['Pending', 'Approved', 'Rejected'],
+    default: 'Approved',
+  },
+  submittedBy:     { type: Types.ObjectId, ref: 'User' },  // who captured it, when it required review
+  reviewedBy:      { type: Types.ObjectId, ref: 'User' },  // who approved/rejected it (or auto-approved it)
+  reviewedAt:      Date,
+  rejectionReason: String,
 
   // ── Classification ────────────────────────────────────────────────────────
   mda:    { type: String, default: '' },
@@ -133,7 +149,7 @@ const assetSchema = new Schema({
   lifecycleDocs:    [{ name: String, stage: String, at: { type: Date, default: Date.now } }],
 
   // ── Relationships ─────────────────────────────────────────────────────────
-  parentId:  { type: String, default: null, index: true },   // assetId of parent
+  parentId:  { type: String, default: null },                 // assetId of parent
   childIds:  { type: [String], default: [] },                // assetIds of children
 
   nextInspection:     Date,
@@ -220,6 +236,8 @@ assetSchema.index({ captureDate: -1 });
 assetSchema.index({ nextInspection: 1 });
 assetSchema.index({ lifecycleStage: 1 });
 assetSchema.index({ parentId: 1 });
+assetSchema.index({ approvalStatus: 1 });
+assetSchema.index({ submittedBy: 1 });
 assetSchema.index({ 'maintenanceLogs.date': 1 });
 assetSchema.index({ name: 'text', notes: 'text', address: 'text' });
 

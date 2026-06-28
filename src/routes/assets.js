@@ -22,9 +22,10 @@ function toObjectId(str) {
 }
 
 function assetQuery(id) {
-  return id.startsWith('AST-') ? { assetId: id } : { _id: id };
+  if (id.startsWith('AST-') || id.startsWith('FGN-'))
+    return { assetId: id };
+  return { _id: id };
 }
-
 /** Write a multer memory buffer into a GridFS bucket. Returns file metadata. */
 function uploadToGridFS(bucket, file, metadata = {}) {
   return new Promise((resolve, reject) => {

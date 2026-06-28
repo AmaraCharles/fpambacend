@@ -4,6 +4,12 @@ const turf           = require('@turf/turf');
 const AssetCodeIndex = require('../utils/assetCodeIndex');
 const Mda            = require('../models/Mda');
 
+// Roles whose own captures skip the approval queue entirely and are
+// treated as verified the moment they're saved. Per product decision,
+// only System Admin (the "super admin") gets this — Sub-Head and
+// Supervisor captures still go through review like a Field Agent's would.
+const AUTO_APPROVE_ROLES = ['System Admin'];
+
 // ── ID generation ─────────────────────────────────────────────────────────────
 // Previously sorted by createdAt to find "the last" asset and incremented its
 // number. That breaks the moment any asset has a backdated/preserved
@@ -88,9 +94,15 @@ function normaliseAsset(asset) {
 }
 
 // ── createAsset ───────────────────────────────────────────────────────────────
-async function createAsset(body, userId) {
+// `role` is the capturing user's role at the time of the request — pass
+// req.user.role from the route handler. Used purely to decide whether this
+// capture needs Sub-Head/Supervisor/Admin review before it counts as part
+// of the verified registry (see AUTO_APPROVE_ROLES above).
+async function createAsset(body, userId, role) {
   const MAX_RETRIES = 5;
   let lastErr;
+
+  const autoApprove = AUTO_APPROVE_ROLES.includes(role);
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const assetId   = await nextAssetId();
@@ -110,6 +122,10 @@ async function createAsset(body, userId) {
         type: 'Point',
         coordinates: body.coordinates,
       },
+      approvalStatus: autoApprove ? 'Approved' : 'Pending',
+      submittedBy:    autoApprove ? undefined  : userId,
+      reviewedBy:     autoApprove ? userId      : undefined,
+      reviewedAt:     autoApprove ? new Date()  : undefined,
     });
     delete data.coordinates;
 
@@ -134,7 +150,7 @@ async function createAsset(body, userId) {
 
 // ── listAssets ────────────────────────────────────────────────────────────────
 async function listAssets({
-  type, condition, state, lga, geomType, status,
+  type, condition, state, lga, geomType, status, approvalStatus,
   page = 1, limit = 50,
   scopeFilter = {},
 } = {}) {
@@ -149,6 +165,22 @@ async function listAssets({
   if (lga)       filter.lga       = lga;
   if (geomType)  filter.geomType  = geomType;
   if (status)    filter.status    = status;
+
+  // ── Approval gate ──────────────────────────────────────────────────────
+  // The main registry (dashboard, map, asset list, exports) should never
+  // show unverified data by default. Existing/legacy assets have no
+  // approvalStatus value at all, so we exclude by *what we don't want*
+  // ($nin Pending/Rejected) rather than filtering for 'Approved' — a strict
+  // equality filter would incorrectly hide every asset that predates this
+  // field. Callers that explicitly want the pending/rejected queue (the
+  // approvals routes) pass approvalStatus directly; 'all' bypasses the gate.
+  if (approvalStatus === 'all') {
+    // no filter — full unfiltered view
+  } else if (approvalStatus) {
+    filter.approvalStatus = approvalStatus;
+  } else {
+    filter.approvalStatus = { $nin: ['Pending', 'Rejected'] };
+  }
 
   const [assets, total] = await Promise.all([
     Asset.find(filter).skip(skip).limit(_limit).sort({ createdAt: -1 }).lean(),
@@ -167,19 +199,20 @@ async function listAssets({
 async function getAsset(id) {
   // Support lookup by assetId (AST-XXXX), assetCode (FGN-...), or MongoDB _id
   let query;
-  if (id.startsWith('AST-'))  query = { assetId:   id };
-  else if (id.startsWith('FGN-')) query = { assetCode: id };
-  else                           query = { _id: id };
+  if (id.startsWith('AST-') || id.startsWith('FGN-')) query = { assetId: id };
+  else                                                   query = { _id: id };
 
   const asset = await Asset.findOne(query)
     .populate('capturedBy', 'name email role')
+    .populate('submittedBy', 'name email role')
+    .populate('reviewedBy', 'name email role')
     .lean();
   return normaliseAsset(asset);
 }
 
 // ── updateAsset ───────────────────────────────────────────────────────────────
 async function updateAsset(id, body) {
-  const query = id.startsWith('AST-') ? { assetId: id } : { _id: id };
+  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
 
   // Strip fields that must never be overwritten via $set
   const {
@@ -192,6 +225,11 @@ async function updateAsset(id, body) {
     documents:  _d,
     xlDatasets: _xl,
     excel:      _ex,
+    approvalStatus:   _as,
+    submittedBy:      _sb,
+    reviewedBy:       _rb,
+    reviewedAt:       _ra,
+    rejectionReason:  _rr,
     ...fields
   } = body;
 
@@ -224,7 +262,7 @@ async function updateAsset(id, body) {
 
 // ── deleteAsset ───────────────────────────────────────────────────────────────
 async function deleteAsset(id) {
-  const query = id.startsWith('AST-') ? { assetId: id } : { _id: id };
+  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
   return Asset.findOneAndDelete(query).lean();
 }
 
@@ -237,6 +275,7 @@ async function searchAssets(q, scopeFilter = {}) {
 
   const assets = await Asset.find({
     ...scopeFilter,
+    approvalStatus: { $nin: ['Pending', 'Rejected'] },
     $or: [
       { name:      re },
       { assetId:   re },
@@ -256,4 +295,99 @@ async function searchAssets(q, scopeFilter = {}) {
   return assets.map(normaliseAsset);
 }
 
-module.exports = { createAsset, listAssets, getAsset, updateAsset, deleteAsset, searchAssets, generateAssetCode };
+// ── Approval workflow ─────────────────────────────────────────────────────────
+
+// listPendingApprovals — used by the new asset-approvals routes.
+// `status` defaults to 'Pending'; pass 'Rejected' / 'Approved' / 'all' to
+// view other buckets (e.g. a Field Agent checking on their own rejected items).
+async function listPendingApprovals({ status = 'Pending', page = 1, limit = 50, scopeFilter = {} } = {}) {
+  const _page  = Math.max(1, parseInt(page,  10) || 1);
+  const _limit = Math.min(200, parseInt(limit, 10) || 50);
+  const skip   = (_page - 1) * _limit;
+
+  const filter = { ...scopeFilter };
+  if (status && status !== 'all') filter.approvalStatus = status;
+
+  const [assets, total] = await Promise.all([
+    Asset.find(filter)
+      .populate('submittedBy', 'name email role')
+      .populate('capturedBy',  'name email role')
+      .populate('reviewedBy',  'name email role')
+      .skip(skip).limit(_limit).sort({ createdAt: -1 }).lean(),
+    Asset.countDocuments(filter),
+  ]);
+
+  return {
+    assets: assets.map(normaliseAsset),
+    total,
+    page:   _page,
+    pages:  Math.ceil(total / _limit),
+  };
+}
+
+// approveAsset — marks a Pending asset as Approved. Returns null if the
+// asset doesn't exist; throws a tagged error if it's not currently Pending
+// or if the reviewer is the same person who submitted it (no self-approval).
+async function approveAsset(id, reviewerId) {
+  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
+  const asset = await Asset.findOne(query);
+  if (!asset) return null;
+
+  if (asset.approvalStatus !== 'Pending') {
+    const err = new Error(`Asset is ${asset.approvalStatus}, not Pending`);
+    err.statusCode = 400;
+    throw err;
+  }
+  if (asset.submittedBy && asset.submittedBy.toString() === reviewerId.toString()) {
+    const err = new Error('You cannot approve an asset you submitted yourself');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  asset.approvalStatus = 'Approved';
+  asset.reviewedBy      = reviewerId;
+  asset.reviewedAt       = new Date();
+  asset.rejectionReason  = undefined;
+  await asset.save();
+  return normaliseAsset(asset.toObject());
+}
+
+// rejectAsset — marks a Pending asset as Rejected with an optional reason.
+async function rejectAsset(id, reviewerId, reason) {
+  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
+  const asset = await Asset.findOne(query);
+  if (!asset) return null;
+
+  if (asset.approvalStatus !== 'Pending') {
+    const err = new Error(`Asset is ${asset.approvalStatus}, not Pending`);
+    err.statusCode = 400;
+    throw err;
+  }
+  if (asset.submittedBy && asset.submittedBy.toString() === reviewerId.toString()) {
+    const err = new Error('You cannot reject an asset you submitted yourself');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  asset.approvalStatus  = 'Rejected';
+  asset.reviewedBy       = reviewerId;
+  asset.reviewedAt        = new Date();
+  asset.rejectionReason   = reason || '';
+  await asset.save();
+  return normaliseAsset(asset.toObject());
+}
+
+// approvalsSummary — counts for a dashboard / sidebar badge.
+async function approvalsSummary(scopeFilter = {}) {
+  const [pending, approved, rejected] = await Promise.all([
+    Asset.countDocuments({ ...scopeFilter, approvalStatus: 'Pending' }),
+    Asset.countDocuments({ ...scopeFilter, approvalStatus: 'Approved' }),
+    Asset.countDocuments({ ...scopeFilter, approvalStatus: 'Rejected' }),
+  ]);
+  return { pending, approved, rejected };
+}
+
+module.exports = {
+  createAsset, listAssets, getAsset, updateAsset, deleteAsset, searchAssets, generateAssetCode,
+  listPendingApprovals, approveAsset, rejectAsset, approvalsSummary,
+};

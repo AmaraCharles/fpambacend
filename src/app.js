@@ -37,6 +37,7 @@ app.use(cors({
     const allowed = !origin
       || origin === env.CLIENT_URL
       ||origin === "https://fpam.vercel.app"
+      ||origin === "https://fpam.fmhud.gov.ng"
       || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
     cb(null, allowed);
   },
@@ -70,6 +71,7 @@ app.use('/api/assets/:assetId/excel',     excelRoute);
 
 app.use('/api/analytics', analyticsRoute);   // ← now points to analytics_routes.js
 app.use('/api/ocr',       ocrRoute);
+app.use('/api/users/role-config', require('./routes/role_config_routes'));
 app.use('/api/users',     usersRoute);
 app.use('/api/audit',     auditRoute);
 app.use('/api/settings',  settingsRoute);

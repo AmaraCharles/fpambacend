@@ -3,21 +3,20 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { Schema, Types } = mongoose;
 
+// ── Permissions sub-schema ────────────────────────────────────────────────────
+// Keys match the short names used by the frontend (users.js / role_config_routes.js)
+// and by resolvePermissions.js's ROLE_DEFAULTS. Any key set here overrides
+// the role's default from ROLE_DEFAULTS when resolvePermissions merges them.
 const permissionsSchema = new Schema({
-  canCreateAssets:   { type: Boolean },
-  canEditAssets:     { type: Boolean },
-  canDeleteAssets:   { type: Boolean },
-  canApproveAssets:  { type: Boolean },
-  canExportData:     { type: Boolean },
-  canRunOCR:         { type: Boolean },
+  canCreate:         { type: Boolean },
+  canEdit:           { type: Boolean },
+  canDelete:         { type: Boolean },
+  canApprove:        { type: Boolean },
+  canExport:         { type: Boolean },
+  canViewAll:        { type: Boolean },
   canManageUsers:    { type: Boolean },
-  canViewAnalytics:  { type: Boolean },
-  canViewAuditLog:   { type: Boolean },
-  canChangeSettings: { type: Boolean },
-  canBulkDelete:     { type: Boolean },
-  canBulkExport:     { type: Boolean },
-  maxPhotosPerAsset: { type: Number },
-  maxAssetsPerDay:   { type: Number },
+  canViewAudit:      { type: Boolean },
+  canManageSettings: { type: Boolean },
 }, { _id: false });
 
 const userSchema = new Schema({
@@ -27,7 +26,10 @@ const userSchema = new Schema({
   role: {
     type: String,
     required: true,
-    enum: ['Field Agent', 'Supervisor', 'GIS Analyst', 'System Admin'],
+    // Ranking (low → high): Field Agent < Sub-Head < Supervisor < GIS Analyst < System Admin.
+    // Sub-Head sits just above Field Agent and exists to verify/approve field
+    // captures before they're treated as part of the official registry.
+    enum: ['Field Agent', 'Sub-Head', 'Supervisor', 'GIS Analyst', 'System Admin'],
   },
   password: { type: String, required: true, select: false },
 

@@ -69,7 +69,7 @@ const schemas = {
   createUser: Joi.object({
     name:     Joi.string().required(),
     email:    Joi.string().email().required(),
-    role:     Joi.string().valid('Field Agent', 'Supervisor', 'GIS Analyst', 'System Admin').required(),
+    role:     Joi.string().valid('Field Agent', 'Sub-Head', 'Supervisor', 'GIS Analyst', 'System Admin').required(),
     password: Joi.string().min(8).required(),
     color:    Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/),
     zone:     Joi.string().allow(''),
@@ -80,29 +80,24 @@ const schemas = {
   // User update
   updateUser: Joi.object({
     name:   Joi.string(),
-    role:   Joi.string().valid('Field Agent', 'Supervisor', 'GIS Analyst', 'System Admin'),
+    role:   Joi.string().valid('Field Agent', 'Sub-Head', 'Supervisor', 'GIS Analyst', 'System Admin'),
     color:  Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/),
     zone:   Joi.string().allow(''),
     states: Joi.array().items(Joi.string()),
     lgas:   Joi.array().items(Joi.string()),
   }),
 
-  // Permission overrides
+  // Permission overrides — short key names matching the frontend and User model
   permissions: Joi.object({
-    canCreateAssets:   Joi.boolean(),
-    canEditAssets:     Joi.boolean(),
-    canDeleteAssets:   Joi.boolean(),
-    canApproveAssets:  Joi.boolean(),
-    canExportData:     Joi.boolean(),
-    canRunOCR:         Joi.boolean(),
+    canCreate:         Joi.boolean(),
+    canEdit:           Joi.boolean(),
+    canDelete:         Joi.boolean(),
+    canApprove:        Joi.boolean(),
+    canExport:         Joi.boolean(),
+    canViewAll:        Joi.boolean(),
     canManageUsers:    Joi.boolean(),
-    canViewAnalytics:  Joi.boolean(),
-    canViewAuditLog:   Joi.boolean(),
-    canChangeSettings: Joi.boolean(),
-    canBulkDelete:     Joi.boolean(),
-    canBulkExport:     Joi.boolean(),
-    maxPhotosPerAsset: Joi.number().min(1).allow(null),
-    maxAssetsPerDay:   Joi.number().min(1).allow(null),
+    canViewAudit:      Joi.boolean(),
+    canManageSettings: Joi.boolean(),
   }),
 
   // Maintenance log entry
@@ -119,6 +114,11 @@ const schemas = {
     currency: Joi.string().default('NGN'),
     valuedAt: Joi.date(),
     method:   Joi.string().valid('Replacement Cost', 'Market Comparable', 'Depreciated'),
+  }),
+
+  // Asset approval / rejection
+  assetReject: Joi.object({
+    reason: Joi.string().allow('').max(1000),
   }),
 };
 
