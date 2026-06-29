@@ -34,6 +34,23 @@ router.get('/', ...auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── DASHBOARD SUMMARY ─────────────────────────────────────────────────────────
+// GET /api/inspections/summary
+router.get('/summary', ...auth, async (req, res) => {
+  try {
+    const today = new Date();
+    const in7d  = new Date(today.getTime() + 7 * 86400000);
+    const [total, overdue, pending, approved, upcoming] = await Promise.all([
+      Inspection.countDocuments({}),
+      Inspection.countDocuments({ scheduledDate: { $lt: today }, status: { $nin: ['Submitted','Approved','Rejected'] } }),
+      Inspection.countDocuments({ status: 'Submitted' }),
+      Inspection.countDocuments({ status: 'Approved' }),
+      Inspection.countDocuments({ scheduledDate: { $gte: today, $lte: in7d }, status: { $nin: ['Approved','Rejected'] } }),
+    ]);
+    res.json({ total, overdue, pending, approved, upcoming });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── CREATE ────────────────────────────────────────────────────────────────────
 // POST /api/inspections   or   POST /api/assets/:assetId/inspections
 router.post('/', ...auth, auditLog('INSPECTION_SCHEDULED', 'Inspection'), async (req, res) => {
@@ -42,7 +59,7 @@ router.post('/', ...auth, auditLog('INSPECTION_SCHEDULED', 'Inspection'), async 
     if (!assetId) return res.status(400).json({ error: 'assetId required' });
 
     // Resolve asset name
-    const assetQuery = assetId.startsWith('AST-') ? { assetId } : { _id: assetId };
+    const assetQuery = (assetId.startsWith('AST-') || assetId.startsWith('FGN-')) ? { assetId } : { _id: assetId };
     const asset = await Asset.findOne(assetQuery, { name: 1, assetId: 1 }).lean();
     if (!asset) return res.status(404).json({ error: 'Asset not found' });
 
@@ -192,23 +209,6 @@ router.delete('/:id', ...auth, async (req, res) => {
   try {
     await Inspection.deleteOne({ $or: [{ _id: req.params.id }, { inspectionId: req.params.id }] });
     res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── DASHBOARD SUMMARY ─────────────────────────────────────────────────────────
-// GET /api/inspections/summary
-router.get('/summary', ...auth, async (req, res) => {
-  try {
-    const today = new Date();
-    const in7d  = new Date(today.getTime() + 7 * 86400000);
-    const [total, overdue, pending, approved, upcoming] = await Promise.all([
-      Inspection.countDocuments({}),
-      Inspection.countDocuments({ scheduledDate: { $lt: today }, status: { $nin: ['Submitted','Approved','Rejected'] } }),
-      Inspection.countDocuments({ status: 'Submitted' }),
-      Inspection.countDocuments({ status: 'Approved' }),
-      Inspection.countDocuments({ scheduledDate: { $gte: today, $lte: in7d }, status: { $nin: ['Approved','Rejected'] } }),
-    ]);
-    res.json({ total, overdue, pending, approved, upcoming });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -83,6 +83,9 @@ app.use('/api/assets', require('./routes/asset_extras_routes'));
 app.use('/api/inspections', require('./routes/inspection_routes'));
 app.use('/api/assets/:assetId/inspections', require('./routes/inspection_routes'));
 
+app.use('/api/assets/files', require('./routes/files_route'));
+app.use('/api/assets', require('./routes/assets')); // existing line
+
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   const status = err.status || err.statusCode || 500;

@@ -226,6 +226,36 @@ router.post('/',
   }
 );
 
+// ── FILE INDEX — must be before /:id ─────────────────────────────────────────
+router.get('/files', ...auth, async (req, res, next) => {
+  try {
+    const { type, limit = 500, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const matchOr = [];
+    if (!type || type === 'photo')    matchOr.push({ 'photos.0':    { $exists: true } });
+    if (!type || type === 'document') matchOr.push({ 'documents.0': { $exists: true } });
+    if (!type || type === 'excel')    matchOr.push({ 'xlDatasets.0':{ $exists: true } });
+
+    const pipeline = [
+      { $match: matchOr.length ? { $or: matchOr } : {} },
+      { $project: { assetId:1, name:1, photos:1, documents:1, xlDatasets:1 } },
+      { $skip: skip },
+      { $limit: parseInt(limit) },
+    ];
+
+    const assets = await Asset.aggregate(pipeline);
+    const files = [];
+    assets.forEach(a => {
+      (a.photos     || []).forEach(f => files.push({ ...f, _assetId: a.assetId, _assetName: a.name, _fileType: 'photo' }));
+      (a.documents  || []).forEach(f => files.push({ ...f, _assetId: a.assetId, _assetName: a.name, _fileType: 'document' }));
+      (a.xlDatasets || []).forEach(f => files.push({ ...f, _assetId: a.assetId, _assetName: a.name, _fileType: 'excel' }));
+    });
+
+    res.json({ files, total: files.length });
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', ...auth, async (req, res, next) => {
   try {
     const asset = await assetSvc.getAsset(req.params.id);
@@ -291,7 +321,7 @@ router.get('/:id/photos/:fileId', ...auth, async (req, res, next) => {
 });
 
 router.post('/:id/photos',
-  ...auth, requirePerm('canEditAssets'),
+  ...auth, requirePerm('canCreateAssets'),
   photoUploader.single('photo'),
   auditLog('PHOTO_UPLOADED', 'Asset'),
   async (req, res, next) => {
