@@ -28,6 +28,9 @@ const settingsRoute  = require('./routes/settings');
 // ✅ MDA ROUTE ADDED
 const mdaRoute       = require('./routes/mda_routes');
 
+// ✅ M&E ROUTES ADDED
+const meRoute        = require('./routes/me_routes');
+
 const app = express();
 
 // ── Security & compression ────────────────────────────────────────────────────
@@ -57,6 +60,11 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 
 // ── API routes ────────────────────────────────────────────────────────────────
 app.use('/api/auth',      authRoute);
+
+// M&E routes MUST be mounted before assetsRoute — the assets router has a
+// catch-all GET /:id that would swallow /:id/me-reports before meRoute sees it.
+app.use('/api/assets', meRoute);
+
 app.use('/api/assets',    assetsRoute);
 app.use('/api/assets',    exportRoute);
 app.use('/api/assets/spatial', spatialRoute);
@@ -84,7 +92,6 @@ app.use('/api/inspections', require('./routes/inspection_routes'));
 app.use('/api/assets/:assetId/inspections', require('./routes/inspection_routes'));
 
 app.use('/api/assets/files', require('./routes/files_route'));
-app.use('/api/assets', require('./routes/assets')); // existing line
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {

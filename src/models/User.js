@@ -31,6 +31,23 @@ const userSchema = new Schema({
     // captures before they're treated as part of the official registry.
     enum: ['Field Agent', 'Sub-Head', 'Supervisor', 'GIS Analyst', 'System Admin'],
   },
+
+  // Division scopes which part of the platform the user can access.
+  // Supervisor and System Admin are cross-division (value: 'All').
+  // Field Agent is restricted to their assigned division only.
+  division: {
+    type: String,
+    enum: [
+      'All',
+      'Assets & Condition',
+      'Monitoring & Evaluation',
+      'Planning & Design',
+      'Rehabilitation & Restoration',
+      'Building Training & Maintenance',
+    ],
+    default: 'Assets & Condition',
+  },
+
   password: { type: String, required: true, select: false },
 
   color: { type: String, default: '#3B82F6' },  // avatar hex
@@ -61,6 +78,7 @@ const userSchema = new Schema({
 
 // ── Indexes ──────────────────────────────────────────────────────────────────
 userSchema.index({ role: 1 });
+userSchema.index({ division: 1 });
 userSchema.index({ isActive: 1 });
 
 // ── Pre-save: hash password ──────────────────────────────────────────────────
