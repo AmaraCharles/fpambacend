@@ -33,6 +33,9 @@ const meRoute        = require('./routes/me_routes');
 
 const app = express();
 
+// Trust proxy (Render/Reverse Proxy)
+app.set("trust proxy", 1);
+
 // ── Security & compression ────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
