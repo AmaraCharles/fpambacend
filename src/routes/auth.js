@@ -5,10 +5,11 @@ const User   = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { authenticate } = require('../middleware/auth');
 const { validateBody, schemas } = require('../middleware/validate');
+const bcrypt = require('bcryptjs');
 const { authLimiter } = require('../middleware/rateLimiter');
 const env = require('../config/env');
 
-// POST /api/auth/login
+
 router.post('/login', authLimiter, validateBody(schemas.login), async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -18,6 +19,13 @@ router.post('/login', authLimiter, validateBody(schemas.login), async (req, res,
     const userDoc = await User.findOne({ email, isActive: true }).select('+password');
     if (!userDoc) return res.status(401).json({ error: 'Invalid credentials' });
 
+console.log('user found:', !!user);
+if (user) {
+  console.log('input password:', password);
+console.log('stored hash:', user.password);
+  const match = await bcrypt.compare(password, user.password);
+  console.log('password match:', match);
+}
     const ok = await userDoc.comparePassword(password);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 

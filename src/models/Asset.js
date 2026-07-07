@@ -17,12 +17,15 @@ const fileRefSchema = new Schema({
 
 // ── Maintenance log sub-schema ────────────────────────────────────────────────
 const maintenanceLogSchema = new Schema({
-  date:     { type: Date, required: true },
-  desc:     { type: String, required: true },
-  tech:     String,
-  cost:     { type: Number, min: 0 },
-  amount:   Number,
-  loggedBy: { type: Types.ObjectId, ref: 'User' },
+  date:         { type: Date, required: true },
+  desc:         { type: String, required: true },
+  tech:         String,
+  cost:         { type: Number, min: 0 },
+  amount:       Number,
+  loggedBy:     { type: Types.ObjectId, ref: 'User' },
+  // M&E clearance certificate link (set when clearance is issued from me.html)
+  meReportId:   String,
+  meReportLink: String,
 }, { _id: true, timestamps: false });
 
 // ── Condition history sub-schema ──────────────────────────────────────────────
@@ -42,65 +45,6 @@ const lifecycleHistorySchema = new Schema({
   note:      String,
   document:  String,
 }, { _id: false });
-
-// ── M&E Report sub-schema ─────────────────────────────────────────────────────
-const meTaskSchema = new Schema({
-  label:      { type: String, required: true },
-  percentage: { type: Number, min: 0, max: 100, default: 0 },
-}, { _id: false });
-
-const meReportSchema = new Schema({
-  // Contract header
-  contractNo:         String,
-  contractorName:     String,
-  contractorAddress:  String,
-  contractSum:        Number,
-  contractPeriod:     String,
-  commencementDate:   Date,
-  completionPeriod:   String,
-  reportLocation:     String,
-
-  // Report metadata
-  reportType:   { type: String, enum: ['secretariat', 'nhp'], required: true },
-  reportMonth:  { type: Number, min: 1, max: 12, required: true },
-  reportYear:   { type: Number, required: true },
-
-  // Task line items (% completion per activity)
-  tasks:              [meTaskSchema],
-  overallPercentage:  { type: Number, min: 0, max: 100, default: 0 },
-
-  // General remarks
-  labourRating:       { type: String, enum: ['Very Good', 'Good', 'Fair', 'Poor'] },
-  materialsRating:    { type: String, enum: ['Very Good', 'Good', 'Fair', 'Poor'] },
-  progressRating:     { type: String, enum: ['Very Good', 'Good', 'Fair', 'Poor'] },
-  workmanshipRating:  { type: String, enum: ['Very Good', 'Good', 'Fair', 'Poor'] },
-  otherComments:      String,
-
-  // Chief Resident Architect sign-off
-  craName:        String,
-  craDesignation: String,
-  craDate:        Date,
-
-  // Clearance certificate (issued after satisfactory report)
-  clearanceIssued:       { type: Boolean, default: false },
-  clearanceDate:         Date,
-  clearanceMonth:        String,
-  satisfactory:          { type: Boolean, default: true },
-  unsatisfactoryWorks:   String,
-  facilityManagerName:   String,
-  facilityManagerDesig:  String,
-  facilityManagerDate:   Date,
-
-  // Workflow
-  status: {
-    type:    String,
-    enum:    ['Draft', 'Submitted', 'Cleared', 'Not Cleared'],
-    default: 'Draft',
-  },
-
-  submittedBy: { type: Types.ObjectId, ref: 'User' },
-  submittedAt: Date,
-}, { _id: true, timestamps: true });
 
 // ── Main asset schema ─────────────────────────────────────────────────────────
 const assetSchema = new Schema({
@@ -234,9 +178,6 @@ const assetSchema = new Schema({
   }],
 
   maintenanceLogs: [maintenanceLogSchema],
-
-  // ── M&E Reports (Monitoring & Evaluation Division) ────────────────────────
-  meReports: [meReportSchema],
 
   valuation: {
     amount:   Number,

@@ -57,8 +57,42 @@ router.get('/:id/me-reports', ...auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /api/me-reports/templates ─────────────────────────────────────────────
-// Returns task templates so frontend can build forms without hardcoding
+// ── GET /api/assets/me-reports/all ────────────────────────────────────────────
+// Returns all M&E reports across all assets for stats + global list view
+router.get('/me-reports/all', ...auth, async (req, res) => {
+  try {
+    const assets = await Asset.find(
+      { 'meReports.0': { $exists: true } },
+      { assetId: 1, name: 1, type: 1, state: 1, meReports: 1 }
+    ).lean();
+
+    const reports = [];
+    for (const a of assets) {
+      for (const r of (a.meReports || [])) {
+        reports.push({
+          ...r,
+          _assetId:   a.assetId,
+          _assetName: a.name,
+          _assetType: a.type,
+          _assetState: a.state,
+        });
+      }
+    }
+
+    // Summary counts
+    const summary = {
+      total:      reports.length,
+      draft:      reports.filter(r => r.status === 'Draft').length,
+      submitted:  reports.filter(r => r.status === 'Submitted').length,
+      cleared:    reports.filter(r => r.status === 'Cleared').length,
+      notCleared: reports.filter(r => r.status === 'Not Cleared').length,
+    };
+
+    res.json({ reports, summary });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/assets/me-reports/templates ─────────────────────────────────────
 router.get('/me-reports/templates', ...auth, (req, res) => {
   res.json({ secretariat: SECRETARIAT_TASKS, nhp: NHP_TASKS });
 });
@@ -98,7 +132,7 @@ router.post('/:id/me-reports', ...auth, auditLog('ME_REPORT_SUBMITTED', 'Asset')
     };
 
     asset.meReports.push(report);
-    await asset.save();
+    await asset.save({ validateBeforeSave: false });
 
     const saved = asset.meReports[asset.meReports.length - 1];
     res.status(201).json({ report: saved, message: 'M&E report submitted' });
@@ -130,13 +164,30 @@ router.patch('/:id/me-reports/:rid', ...auth, auditLog('ME_REPORT_UPDATED', 'Ass
 
     allowed.forEach(k => { if (req.body[k] !== undefined) report[k] = req.body[k]; });
 
-    // Auto-set status when clearance is issued
+    // Auto-set status and write maintenance log when clearance is issued
     if (req.body.clearanceIssued === true) {
-      report.status = req.body.satisfactory === false ? 'Not Cleared' : 'Cleared';
+      const sat = req.body.satisfactory !== false;
+      report.status = sat ? 'Cleared' : 'Not Cleared';
       report.clearanceDate = report.clearanceDate || new Date();
+
+      // Write maintenance log entry directly (bypasses the assets.js route issue)
+      const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const monthName = MONTHS[(report.reportMonth||1)-1] || '';
+      const typeLabel = report.reportType === 'nhp' ? 'NHP' : 'Secretariat';
+      asset.maintenanceLogs = asset.maintenanceLogs || [];
+      asset.maintenanceLogs.push({
+        date:         report.clearanceDate,
+        desc:         `M&E Clearance Certificate — ${monthName} ${report.reportYear} (${typeLabel}) · ${sat ? 'Satisfactory ✓' : 'Unsatisfactory ✗'}`,
+        tech:         req.user?.name || 'M&E Supervisor',
+        cost:         0,
+        amount:       0,
+        loggedBy:     req.user?._id,
+        meReportId:   String(report._id),
+        meReportLink: `me.html?asset=${encodeURIComponent(asset.assetId)}`,
+      });
     }
 
-    await asset.save();
+    await asset.save({ validateBeforeSave: false });
     res.json({ report, message: 'Report updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -152,7 +203,7 @@ router.delete('/:id/me-reports/:rid', ...auth, auditLog('ME_REPORT_DELETED', 'As
     if (report.status !== 'Draft') return res.status(400).json({ error: 'Only Draft reports can be deleted' });
 
     report.deleteOne();
-    await asset.save();
+    await asset.save({ validateBeforeSave: false });
     res.json({ message: 'Report deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

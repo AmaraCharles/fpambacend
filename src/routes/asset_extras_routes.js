@@ -13,7 +13,8 @@ const auth = [authenticate, resolvePermissions];
 
 // ── HELPER ────────────────────────────────────────────────────────────────────
 function assetQuery(id) {
-  return id.startsWith('AST-') ? { assetId: id } : { _id: id };
+  const isObjectId = /^[a-f\d]{24}$/i.test(id);
+  return isObjectId ? { _id: id } : { assetId: id };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
