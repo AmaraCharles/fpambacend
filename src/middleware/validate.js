@@ -96,6 +96,9 @@ const schemas = {
   // User update
   updateUser: Joi.object({
     name:     Joi.string(),
+    // Lets an admin reactivate a deactivated account (DELETE only soft-
+    // deactivates, and there was previously no way back).
+    isActive: Joi.boolean(),
     role:     Joi.string().valid('Field Agent', 'Sub-Head', 'Supervisor', 'GIS Analyst', 'System Admin', 'MDA Agent'),
     color:    Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/),
     division: Joi.string().allow('', null),
