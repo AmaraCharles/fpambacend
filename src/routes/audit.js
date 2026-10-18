@@ -27,7 +27,9 @@ router.get('/',
       if (from || to) {
         filter.ts = {};
         if (from) filter.ts.$gte = new Date(from);
-        if (to)   filter.ts.$lte = new Date(to);
+        // A bare date (YYYY-MM-DD) means "up to the end of that day" —
+        // new Date('2026-10-18') is midnight, which excluded the whole day.
+        if (to)   filter.ts.$lte = /^\d{4}-\d{2}-\d{2}$/.test(to) ? new Date(`${to}T23:59:59.999Z`) : new Date(to);
       }
 
       const skip = (page - 1) * limit;
