@@ -36,6 +36,36 @@ const upload = multer({
 });
 
 const REVIEWER_ROLES = ['Supervisor', 'Sub-Head', 'System Admin'];
+// Which FormRequest field holds each form type's data.
+const FIELD_MAP = {
+  // NOTE: this intentionally duplicates form_field_defs.js's
+  // FORM_DATA_FIELD — form_field_defs.js is a frontend-only file
+  // (served as a <script> tag to mda_portal.html/form_requests.html)
+  // and isn't deployed to the backend at all, so this route file has
+  // no filesystem path to it and can't require() it. This map has to
+  // be kept in sync by hand whenever a form type is added or
+  // renamed — both this file AND form_field_defs.js need the update,
+  // as happened when SECURITY_SERVICES_COST_TEMPLATE and
+  // JANITORIAL_SERVICES_COST_TEMPLATE were added.
+  MAINTENANCE_COMPLIANCE_DECLARATION: 'complianceDeclaration',
+  ASSET_INVENTORY_DECLARATION:        'inventoryDeclaration',
+  PREVENTIVE_MAINTENANCE_SCHEDULE:    'pmSchedule',
+  MAINTENANCE_ACTIVITY_REPORT:        'activityReport',
+  MAINTENANCE_INCIDENT_REPORT:        'incidentReport',
+  MAINTENANCE_WORK_ORDER:             'workOrder',
+  ASSET_CONDITION_ASSESSMENT:         'conditionAssessment',
+  SERVICE_PROVIDER_CERTIFICATION:     'providerCertification',
+  BUDGET_ALLOCATION_UTILIZATION:      'budgetAllocation',
+  TRAINING_CAPACITY_BUILDING:         'trainingCompliance',
+  HSE_COMPLIANCE_CHECKLIST:           'hseChecklist',
+  AUDIT_RESPONSE_CORRECTIVE_ACTION:   'auditResponse',
+  CERTIFICATION_REQUEST:              'certificationRequest',
+  EQUIPMENT_CALIBRATION_CERTIFICATE:  'calibrationSubmission',
+  EQUIPMENT_DISPOSAL_DECOMMISSIONING: 'disposalDecommissioning',
+  SECURITY_SERVICES_COST_TEMPLATE:    'securityServicesCost',
+  JANITORIAL_SERVICES_COST_TEMPLATE:  'janitorialServicesCost',
+};
+
 function isReviewer(req) {
   return REVIEWER_ROLES.includes(req.user.role) && req.permissions?.canReviewFormRequests === true;
 }
@@ -136,34 +166,6 @@ router.post('/',
 
       // Map formType -> the correct embedded sub-document field name, e.g.
       // MAINTENANCE_COMPLIANCE_DECLARATION -> complianceDeclaration
-      const FIELD_MAP = {
-        // NOTE: this intentionally duplicates form_field_defs.js's
-        // FORM_DATA_FIELD — form_field_defs.js is a frontend-only file
-        // (served as a <script> tag to mda_portal.html/form_requests.html)
-        // and isn't deployed to the backend at all, so this route file has
-        // no filesystem path to it and can't require() it. This map has to
-        // be kept in sync by hand whenever a form type is added or
-        // renamed — both this file AND form_field_defs.js need the update,
-        // as happened when SECURITY_SERVICES_COST_TEMPLATE and
-        // JANITORIAL_SERVICES_COST_TEMPLATE were added.
-        MAINTENANCE_COMPLIANCE_DECLARATION: 'complianceDeclaration',
-        ASSET_INVENTORY_DECLARATION:        'inventoryDeclaration',
-        PREVENTIVE_MAINTENANCE_SCHEDULE:    'pmSchedule',
-        MAINTENANCE_ACTIVITY_REPORT:        'activityReport',
-        MAINTENANCE_INCIDENT_REPORT:        'incidentReport',
-        MAINTENANCE_WORK_ORDER:             'workOrder',
-        ASSET_CONDITION_ASSESSMENT:         'conditionAssessment',
-        SERVICE_PROVIDER_CERTIFICATION:     'providerCertification',
-        BUDGET_ALLOCATION_UTILIZATION:      'budgetAllocation',
-        TRAINING_CAPACITY_BUILDING:         'trainingCompliance',
-        HSE_COMPLIANCE_CHECKLIST:           'hseChecklist',
-        AUDIT_RESPONSE_CORRECTIVE_ACTION:   'auditResponse',
-        CERTIFICATION_REQUEST:              'certificationRequest',
-        EQUIPMENT_CALIBRATION_CERTIFICATE:  'calibrationSubmission',
-        EQUIPMENT_DISPOSAL_DECOMMISSIONING: 'disposalDecommissioning',
-        SECURITY_SERVICES_COST_TEMPLATE:    'securityServicesCost',
-        JANITORIAL_SERVICES_COST_TEMPLATE:  'janitorialServicesCost',
-      };
       const field = FIELD_MAP[formType];
       doc[field] = formData[field] || formData;   // accept either nested or flat body shape
 
@@ -212,10 +214,20 @@ router.patch('/:id',
         request.reviewedBy = req.user._id;
         request.reviewedAt = new Date();
       } else {
-        // Owner editing their own draft — allow updating the form-specific block.
-        const { formType, mda, ...rest } = req.body;   // formType/mda are immutable after creation
-        Object.assign(request, rest);
-        if (rest.status === 'Submitted') request.status = 'Submitted';
+        // Owners may only change their own form data, the linked asset, and
+        // move Draft -> Submitted. Previously the whole body was copied onto
+        // the document, so an owner could send status:'Approved',
+        // certificateIssued:true, reviewRemarks, etc. and approve or
+        // "certify" their own request.
+        const field = FIELD_MAP[request.formType];
+        const { status, linkedAssetId } = req.body;
+        const data = req.body[field];
+        if (data && typeof data === 'object') request[field] = data;
+        if (linkedAssetId !== undefined) request.linkedAssetId = linkedAssetId || null;
+        if (status === 'Submitted') request.status = 'Submitted';
+        else if (status && status !== 'Draft') {
+          return res.status(403).json({ error: 'Only a reviewer can change the status beyond Submitted' });
+        }
       }
 
       await request.save();
