@@ -9,10 +9,19 @@ const Asset      = require('../models/Asset');
 const AssetCodeIndex = require('../utils/assetCodeIndex');
 const assetService   = require('../services/assetService');
 const { authenticate }              = require('../middleware/auth');
-const { resolvePermissions }        = require('../middleware/resolvePermissions');
+const { resolvePermissions, requirePerm } = require('../middleware/resolvePermissions');
 const { auditLog }                  = require('../middleware/auditMiddleware');
 
 const auth = [authenticate, resolvePermissions];
+
+// Accepts either the Mongo _id or the human-readable inspectionId (INS-…).
+// The old inline { $or: [{ _id: id }, { inspectionId: id }] } threw a
+// CastError for any non-ObjectId value, so lookups by INS-… always 500'd.
+function inspQuery(id) {
+  return /^[0-9a-f]{24}$/i.test(String(id))
+    ? { $or: [{ _id: id }, { inspectionId: id }] }
+    : { inspectionId: id };
+}
 
 // ── LIST ──────────────────────────────────────────────────────────────────────
 // GET /api/inspections?status=&assetId=&limit=&page=
@@ -61,7 +70,7 @@ router.post('/', ...auth, auditLog('INSPECTION_SCHEDULED', 'Inspection'), async 
     if (!assetId) return res.status(400).json({ error: 'assetId required' });
 
     // Resolve asset name
-    const assetQuery = (assetId.startsWith('AST-') || assetId.startsWith('FGN-')) ? { assetId } : { _id: assetId };
+    const assetQuery = assetService.idQuery(assetId);
     const asset = await Asset.findOne(assetQuery, { name: 1, assetId: 1 }).lean();
     if (!asset) return res.status(404).json({ error: 'Asset not found' });
 
@@ -83,7 +92,7 @@ router.post('/', ...auth, auditLog('INSPECTION_SCHEDULED', 'Inspection'), async 
     await insp.save();
 
     // Update nextInspection on asset
-    await Asset.updateOne(assetQuery, { $set: { nextInspection: req.body.scheduledDate } });
+    await Asset.updateOne({ assetId: asset.assetId }, { $set: { nextInspection: req.body.scheduledDate } });
 
     res.status(201).json({ inspection: insp });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -92,9 +101,7 @@ router.post('/', ...auth, auditLog('INSPECTION_SCHEDULED', 'Inspection'), async 
 // ── GET ONE ───────────────────────────────────────────────────────────────────
 router.get('/:id', ...auth, async (req, res) => {
   try {
-    const insp = await Inspection.findOne({
-      $or: [{ _id: req.params.id }, { inspectionId: req.params.id }]
-    }).lean();
+    const insp = await Inspection.findOne(inspQuery(req.params.id)).lean();
     if (!insp) return res.status(404).json({ error: 'Not found' });
     res.json({ inspection: insp });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -104,9 +111,7 @@ router.get('/:id', ...auth, async (req, res) => {
 // PUT /api/inspections/:id  — general update (assign, progress, etc.)
 router.put('/:id', ...auth, async (req, res) => {
   try {
-    const insp = await Inspection.findOne({
-      $or: [{ _id: req.params.id }, { inspectionId: req.params.id }]
-    });
+    const insp = await Inspection.findOne(inspQuery(req.params.id));
     if (!insp) return res.status(404).json({ error: 'Not found' });
 
     const { status, assignedTo, notes, scheduledDate } = req.body;
@@ -127,9 +132,7 @@ router.put('/:id', ...auth, async (req, res) => {
 // POST /api/inspections/:id/submit
 router.post('/:id/submit', ...auth, auditLog('INSPECTION_SUBMITTED', 'Inspection'), async (req, res) => {
   try {
-    const insp = await Inspection.findOne({
-      $or: [{ _id: req.params.id }, { inspectionId: req.params.id }]
-    });
+    const insp = await Inspection.findOne(inspQuery(req.params.id));
     if (!insp) return res.status(404).json({ error: 'Not found' });
 
     const { condition, date, findings, recommendations } = req.body;
@@ -145,11 +148,9 @@ router.post('/:id/submit', ...auth, auditLog('INSPECTION_SUBMITTED', 'Inspection
 
 // ── APPROVE ───────────────────────────────────────────────────────────────────
 // POST /api/inspections/:id/approve
-router.post('/:id/approve', ...auth, auditLog('INSPECTION_APPROVED', 'Inspection'), async (req, res) => {
+router.post('/:id/approve', ...auth, requirePerm('canApproveAssets'), auditLog('INSPECTION_APPROVED', 'Inspection'), async (req, res) => {
   try {
-    const insp = await Inspection.findOne({
-      $or: [{ _id: req.params.id }, { inspectionId: req.params.id }]
-    });
+    const insp = await Inspection.findOne(inspQuery(req.params.id));
     if (!insp) return res.status(404).json({ error: 'Not found' });
     if (insp.status !== 'Submitted') return res.status(400).json({ error: 'Can only approve Submitted inspections' });
 
@@ -192,6 +193,10 @@ router.post('/:id/approve', ...auth, auditLog('INSPECTION_APPROVED', 'Inspection
         const prevCondition = asset.condition;
         asset.condition      = insp.report.condition;
         asset.lastInspection = insp.report.date || new Date();
+        // Roll the schedule forward — otherwise nextInspection stays on the
+        // (now past) date and the asset keeps showing as overdue.
+        const intervalDays = asset.inspectionInterval || 365;
+        asset.nextInspection = new Date(new Date(asset.lastInspection).getTime() + intervalDays * 86400000);
         asset.assessed       = 'Assessed';
         if (prevCondition !== insp.report.condition) {
           asset.conditionHistory.push({
@@ -217,12 +222,11 @@ router.post('/:id/approve', ...auth, auditLog('INSPECTION_APPROVED', 'Inspection
 
 // ── REJECT ────────────────────────────────────────────────────────────────────
 // POST /api/inspections/:id/reject
-router.post('/:id/reject', ...auth, auditLog('INSPECTION_REJECTED', 'Inspection'), async (req, res) => {
+router.post('/:id/reject', ...auth, requirePerm('canApproveAssets'), auditLog('INSPECTION_REJECTED', 'Inspection'), async (req, res) => {
   try {
-    const insp = await Inspection.findOne({
-      $or: [{ _id: req.params.id }, { inspectionId: req.params.id }]
-    });
+    const insp = await Inspection.findOne(inspQuery(req.params.id));
     if (!insp) return res.status(404).json({ error: 'Not found' });
+    if (insp.status !== 'Submitted') return res.status(400).json({ error: 'Can only reject Submitted inspections' });
 
     insp.status          = 'Rejected';
     insp.rejectionReason = req.body.reason || '';
@@ -235,9 +239,9 @@ router.post('/:id/reject', ...auth, auditLog('INSPECTION_REJECTED', 'Inspection'
 });
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
-router.delete('/:id', ...auth, async (req, res) => {
+router.delete('/:id', ...auth, requirePerm('canEditAssets'), async (req, res) => {
   try {
-    await Inspection.deleteOne({ $or: [{ _id: req.params.id }, { inspectionId: req.params.id }] });
+    await Inspection.deleteOne(inspQuery(req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

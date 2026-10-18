@@ -65,14 +65,18 @@ const inspectionSchema = new Schema({
   timestamps: true,
 });
 
-// Auto-generate inspectionId
-inspectionSchema.pre('save', async function (next) {
-  if (!this.inspectionId) {
-    const last = await mongoose.model('Inspection').findOne({}, { inspectionId: 1 }).sort({ createdAt: -1 }).lean();
-    const num = last?.inspectionId ? parseInt(last.inspectionId.replace('INS-', ''), 36) + 1 : 1000;
-    this.inspectionId = 'INS-' + num.toString(36).toUpperCase();
-  }
-  next();
+// Auto-generate inspectionId. Must run on pre('validate'), not pre('save'):
+// Mongoose validates before save hooks run, so with the old pre('save') the
+// required inspectionId was always missing at validation time and every
+// POST /api/inspections failed with a 500.
+inspectionSchema.pre('validate', async function () {
+  if (this.inspectionId) return;
+  const last = await mongoose.model('Inspection')
+    .findOne({ inspectionId: /^INS-[0-9A-Z]+$/ }, { inspectionId: 1 })
+    .sort({ createdAt: -1 }).lean();
+  const prev = last ? parseInt(last.inspectionId.slice(4), 36) : NaN;
+  const num  = Number.isFinite(prev) ? prev + 1 : 1000;
+  this.inspectionId = 'INS-' + num.toString(36).toUpperCase();
 });
 
 inspectionSchema.index({ assetId: 1, visitSeq: 1 });

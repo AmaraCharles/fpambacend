@@ -67,6 +67,13 @@ const schemas = {
     status:      Joi.string().valid('Active', 'Under Maintenance', 'Decommissioned', 'Disputed', 'Recovered'),
     captureDate: Joi.date(),
     qrPayload:   Joi.string().allow(''),
+    // These were missing, and stripUnknown:true silently dropped them — so
+    // every capture was saved as Unassessed with no sector, area or
+    // next-inspection date, whatever the form said. '' means "not given".
+    assessed:       Joi.string().valid('Assessed', 'Unassessed'),
+    sector:         Joi.string().allow(''),
+    area:           Joi.number().min(0).empty(''),
+    nextInspection: Joi.date().empty(''),
   }),
 
   // User creation
