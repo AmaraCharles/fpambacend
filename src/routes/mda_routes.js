@@ -27,7 +27,11 @@ const requireAdmin = (req, res, next) => {
 // ── GET /api/mdas — public to all authenticated users ────────────────────────
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const filter = { active: true };
+    // ?includeInactive=1 (System Admin only) also returns deactivated MDAs,
+    // so they can be found and reactivated — otherwise a deleted MDA was
+    // invisible and re-adding its name failed with "already exists".
+    const isAdmin = req.user && (req.user.role === 'System Admin' || req.user.role === 'admin');
+    const filter = req.query.includeInactive === '1' && isAdmin ? {} : { active: true };
     if (req.query.category) filter.category = req.query.category;
     const mdas = await Mda.find(filter).sort({ name: 1 }).lean();
     res.json({ mdas });

@@ -19,9 +19,15 @@ router.put('/',
   auditLog('SETTINGS_CHANGED', 'System'),
   async (req, res, next) => {
     try {
+      // Only real settings fields — the body used to be $set wholesale, so
+      // a client could overwrite _singleton, timestamps, etc.
+      const ALLOWED = ['platformName', 'organisation', 'coordinateSystem', 'defaultMapCenter',
+                       'defaultZoom', 'featureToggles', 'exportFormats'];
+      const update = {};
+      for (const k of ALLOWED) if (req.body[k] !== undefined) update[k] = req.body[k];
       const settings = await Settings.findOneAndUpdate(
         { _singleton: 'global' },
-        { $set: { ...req.body, updatedBy: req.user._id } },
+        { $set: { ...update, updatedBy: req.user._id } },
         { new: true, upsert: true }
       ).lean();
       res.json({ settings });
