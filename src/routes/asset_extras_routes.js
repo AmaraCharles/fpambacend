@@ -8,7 +8,7 @@ const Asset          = require('../models/Asset');
 const AssetCodeIndex = require('../utils/assetCodeIndex');
 const assetService   = require('../services/assetService');
 const { authenticate }       = require('../middleware/auth');
-const { resolvePermissions } = require('../middleware/resolvePermissions');
+const { resolvePermissions, requirePerm } = require('../middleware/resolvePermissions');
 const { auditLog }           = require('../middleware/auditMiddleware');
 
 const auth = [authenticate, resolvePermissions];
@@ -241,7 +241,7 @@ router.post('/:id/lifecycle/transition', ...auth, auditLog('LIFECYCLE_TRANSITION
 
 // POST /api/assets/bulk-update
 // Body: { updates: [{ assetId, condition, notes, status, sector, captureDate, assessed }] }
-router.post('/bulk-update', ...auth, auditLog('BULK_UPDATE', 'Asset'), async (req, res) => {
+router.post('/bulk-update', ...auth, requirePerm('canEditAssets'), auditLog('BULK_UPDATE', 'Asset'), async (req, res) => {
   try {
     const { updates } = req.body;
     if (!Array.isArray(updates) || !updates.length) {
@@ -249,6 +249,11 @@ router.post('/bulk-update', ...auth, auditLog('BULK_UPDATE', 'Asset'), async (re
     }
 
     const VALID_CONDITIONS = ['Good', 'Fair', 'Poor', 'Critical', null, ''];
+    // Pull the allowed values straight from the schema so this never drifts.
+    const enumOf = path => Asset.schema.path(path)?.enumValues || [];
+    const VALID_STATUS   = enumOf('status');
+    const VALID_SECTOR   = enumOf('sector');
+    const VALID_ASSESSED = enumOf('assessed');
     const results = { updated: 0, failed: 0, errors: [] };
 
     for (const row of updates) {
@@ -258,12 +263,16 @@ router.post('/bulk-update', ...auth, auditLog('BULK_UPDATE', 'Asset'), async (re
         if (condition !== undefined && !VALID_CONDITIONS.includes(condition)) {
           results.failed++; results.errors.push({ assetId, error: `invalid condition: ${condition}` }); continue;
         }
+        if (status   && !VALID_STATUS.includes(status))     { results.failed++; results.errors.push({ assetId, error: `invalid status: ${status}` });     continue; }
+        if (sector   && !VALID_SECTOR.includes(sector))     { results.failed++; results.errors.push({ assetId, error: `invalid sector: ${sector}` });     continue; }
+        if (assessed && !VALID_ASSESSED.includes(assessed)) { results.failed++; results.errors.push({ assetId, error: `invalid assessed: ${assessed}` }); continue; }
 
         const asset = await Asset.findOne(assetQuery(assetId));
         if (!asset) { results.failed++; results.errors.push({ assetId, error: 'not found' }); continue; }
 
         const update = {};
-        if (condition !== undefined) update.condition = condition || null;
+        // Blank condition means "leave unchanged", not "clear it".
+        if (condition)               update.condition = condition;
         if (notes)                   update.notes     = notes;
         if (status)                  update.status    = status;
         if (sector)                  update.sector    = sector;

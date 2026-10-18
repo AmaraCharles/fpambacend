@@ -21,11 +21,7 @@ function toObjectId(str) {
   try { return new ObjectId(str); } catch { return null; }
 }
 
-function assetQuery(id) {
-  if (id.startsWith('AST-') || id.startsWith('FGN-'))
-    return { assetId: id };
-  return { _id: id };
-}
+const assetQuery = assetSvc.idQuery;
 /** Write a multer memory buffer into a GridFS bucket. Returns file metadata. */
 function uploadToGridFS(bucket, file, metadata = {}) {
   return new Promise((resolve, reject) => {
@@ -172,12 +168,9 @@ router.post('/:id/approve',
   auditLog('ASSET_APPROVED', 'Asset'),
   async (req, res, next) => {
     try {
-      const query = assetQuery(req.params.id);
-      const asset = await Asset.findOneAndUpdate(
-        query,
-        { $set: { approvalStatus: 'Approved', reviewedBy: req.user._id, reviewedAt: new Date() } },
-        { new: true }
-      ).lean();
+      // Service enforces: only Pending/Rejected can be approved, and nobody
+      // can approve an asset they submitted themselves.
+      const asset = await assetSvc.approveAsset(req.params.id, req.user._id);
       if (!asset) return res.status(404).json({ error: 'Asset not found' });
       res.locals.auditDetail = `${asset.name} approved`;
       res.json({ asset });
@@ -191,18 +184,8 @@ router.post('/:id/reject',
   auditLog('ASSET_REJECTED', 'Asset'),
   async (req, res, next) => {
     try {
-      const query = assetQuery(req.params.id);
-      const asset = await Asset.findOneAndUpdate(
-        query,
-        { $set: {
-            approvalStatus:  'Rejected',
-            reviewedBy:      req.user._id,
-            reviewedAt:      new Date(),
-            rejectionReason: req.body.reason || '',
-          }
-        },
-        { new: true }
-      ).lean();
+      // Service enforces: only Pending can be rejected, no self-review.
+      const asset = await assetSvc.rejectAsset(req.params.id, req.user._id, req.body.reason);
       if (!asset) return res.status(404).json({ error: 'Asset not found' });
       res.locals.auditDetail = `${asset.name} rejected — ${req.body.reason || 'no reason given'}`;
       res.json({ asset });
@@ -217,7 +200,7 @@ router.post('/',
   auditLog('ASSET_CREATED', 'Asset'),
   async (req, res, next) => {
     try {
-      const asset = await assetSvc.createAsset(req.body, req.user._id);
+      const asset = await assetSvc.createAsset(req.body, req.user._id, req.user.role);
       res.locals.auditEntityId = asset.assetId;
       res.locals.auditDetail   = `${asset.name} captured`;
       emitNewAsset(asset);
@@ -514,7 +497,7 @@ router.delete('/:id/excel/:fileId', ...auth, requirePerm('canEditAssets'),
 // ── MAINTENANCE ───────────────────────────────────────────────────────────────
 
 router.post('/:id/maintenance',
-  ...auth, validateBody(schemas.maintenanceLog),
+  ...auth, requirePerm('canEditAssets'), validateBody(schemas.maintenanceLog),
   auditLog('MAINTENANCE_LOGGED', 'Asset'),
   async (req, res, next) => {
     try {

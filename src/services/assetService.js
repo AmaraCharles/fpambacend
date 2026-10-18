@@ -10,6 +10,18 @@ const Mda            = require('../models/Mda');
 // Supervisor captures still go through review like a Field Agent's would.
 const AUTO_APPROVE_ROLES = ['System Admin'];
 
+// ── ID lookup ─────────────────────────────────────────────────────────────────
+// Accepts any identifier the frontend may hold: a legacy AST-xxxx assetId, a
+// recoded FGN-... assetId, a structured FGN-... assetCode, or a Mongo _id.
+// Anything that isn't a valid ObjectId is treated as an assetId so malformed
+// IDs return 404 instead of a CastError 500.
+function idQuery(id) {
+  id = String(id || '');
+  if (id.startsWith('FGN-'))           return { $or: [{ assetId: id }, { assetCode: id }] };
+  if (/^[0-9a-f]{24}$/i.test(id))      return { _id: id };
+  return { assetId: id };
+}
+
 // ── ID generation ─────────────────────────────────────────────────────────────
 // Previously sorted by createdAt to find "the last" asset and incremented its
 // number. That breaks the moment any asset has a backdated/preserved
@@ -166,7 +178,7 @@ async function createAsset(body, userId, role) {
 
 // ── listAssets ────────────────────────────────────────────────────────────────
 async function listAssets({
-  type, condition, state, lga, geomType, status, approvalStatus, assessed,
+  type, condition, state, lga, geomType, status, approvalStatus, assessed, mda,
   page = 1, limit = 50,
   scopeFilter = {},
 } = {}) {
@@ -181,6 +193,7 @@ async function listAssets({
   if (lga)       filter.lga       = lga;
   if (geomType)  filter.geomType  = geomType;
   if (status)    filter.status    = status;
+  if (mda)       filter.mda       = mda;
   if (assessed === 'Assessed')   filter.assessed = 'Assessed';
   if (assessed === 'Unassessed') filter.assessed = { $in: ['Unassessed', null, undefined, ''] };
 
@@ -201,7 +214,9 @@ async function listAssets({
   }
 
   const [assets, total] = await Promise.all([
-    Asset.find(filter).skip(skip).limit(_limit).sort({ createdAt: -1 }).lean(),
+    Asset.find(filter).skip(skip).limit(_limit).sort({ createdAt: -1 })
+      .populate('capturedBy', 'name email role')
+      .lean(),
     Asset.countDocuments(filter),
   ]);
 
@@ -216,9 +231,7 @@ async function listAssets({
 // ── getAsset ──────────────────────────────────────────────────────────────────
 async function getAsset(id) {
   // Support lookup by assetId (AST-XXXX), assetCode (FGN-...), or MongoDB _id
-  let query;
-  if (id.startsWith('AST-') || id.startsWith('FGN-')) query = { assetId: id };
-  else                                                   query = { _id: id };
+  const query = idQuery(id);
 
   const asset = await Asset.findOne(query)
     .populate('capturedBy', 'name email role')
@@ -230,7 +243,7 @@ async function getAsset(id) {
 
 // ── updateAsset ───────────────────────────────────────────────────────────────
 async function updateAsset(id, body) {
-  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
+  const query = idQuery(id);
 
   // Strip fields that must never be overwritten via $set
   const {
@@ -297,7 +310,10 @@ async function updateAsset(id, body) {
   try {
     asset = await Asset.findOneAndUpdate(query, update, {
       new:           true,
-      runValidators: false,
+      // Validates only the paths being $set (enums, required) so bad values
+      // like assessed:"yes" or an unknown status are rejected with a 422
+      // instead of being written to the DB.
+      runValidators: true,
     }).lean();
   } catch (err) {
     if (err?.code === 11000 && err.keyPattern?.dupKey) {
@@ -307,6 +323,11 @@ async function updateAsset(id, body) {
       dupErr.statusCode = 409;
       throw dupErr;
     }
+    if (err?.name === 'ValidationError' || err?.name === 'CastError') {
+      const vErr = new Error(err.message);
+      vErr.statusCode = 422;
+      throw vErr;
+    }
     throw err;
   }
 
@@ -315,7 +336,7 @@ async function updateAsset(id, body) {
 
 // ── deleteAsset ───────────────────────────────────────────────────────────────
 async function deleteAsset(id) {
-  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
+  const query = idQuery(id);
   return Asset.findOneAndDelete(query).lean();
 }
 
@@ -327,8 +348,7 @@ async function searchAssets(q, scopeFilter = {}) {
   const re = new RegExp(escaped, 'i');
 
   const assets = await Asset.find({
-    ...scopeFilter,
-    approvalStatus: { $nin: ['Pending', 'Rejected'] },
+    $and: [scopeFilter, { approvalStatus: { $nin: ['Pending', 'Rejected'] } }],
     $or: [
       { name:      re },
       { assetId:   re },
@@ -382,12 +402,13 @@ async function listPendingApprovals({ status = 'Pending', page = 1, limit = 50, 
 // asset doesn't exist; throws a tagged error if it's not currently Pending
 // or if the reviewer is the same person who submitted it (no self-approval).
 async function approveAsset(id, reviewerId) {
-  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
-  const asset = await Asset.findOne(query);
+  const query = idQuery(id);
+  const asset = await Asset.findOne(query).lean();
   if (!asset) return null;
 
-  if (asset.approvalStatus !== 'Pending') {
-    const err = new Error(`Asset is ${asset.approvalStatus}, not Pending`);
+  // A previously Rejected capture may be re-reviewed and approved.
+  if (!['Pending', 'Rejected'].includes(asset.approvalStatus)) {
+    const err = new Error(`Asset is already ${asset.approvalStatus}`);
     err.statusCode = 400;
     throw err;
   }
@@ -397,18 +418,19 @@ async function approveAsset(id, reviewerId) {
     throw err;
   }
 
-  asset.approvalStatus = 'Approved';
-  asset.reviewedBy      = reviewerId;
-  asset.reviewedAt       = new Date();
-  asset.rejectionReason  = undefined;
-  await asset.save();
-  return normaliseAsset(asset.toObject());
+  const updated = await Asset.findOneAndUpdate(
+    { _id: asset._id },
+    { $set: { approvalStatus: 'Approved', reviewedBy: reviewerId, reviewedAt: new Date() },
+      $unset: { rejectionReason: 1 } },
+    { new: true }
+  ).lean();
+  return normaliseAsset(updated);
 }
 
 // rejectAsset — marks a Pending asset as Rejected with an optional reason.
 async function rejectAsset(id, reviewerId, reason) {
-  const query = (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
-  const asset = await Asset.findOne(query);
+  const query = idQuery(id);
+  const asset = await Asset.findOne(query).lean();
   if (!asset) return null;
 
   if (asset.approvalStatus !== 'Pending') {
@@ -422,12 +444,12 @@ async function rejectAsset(id, reviewerId, reason) {
     throw err;
   }
 
-  asset.approvalStatus  = 'Rejected';
-  asset.reviewedBy       = reviewerId;
-  asset.reviewedAt        = new Date();
-  asset.rejectionReason   = reason || '';
-  await asset.save();
-  return normaliseAsset(asset.toObject());
+  const updated = await Asset.findOneAndUpdate(
+    { _id: asset._id },
+    { $set: { approvalStatus: 'Rejected', reviewedBy: reviewerId, reviewedAt: new Date(), rejectionReason: reason || '' } },
+    { new: true }
+  ).lean();
+  return normaliseAsset(updated);
 }
 
 // approvalsSummary — counts for a dashboard / sidebar badge.
@@ -441,6 +463,6 @@ async function approvalsSummary(scopeFilter = {}) {
 }
 
 module.exports = {
-  createAsset, listAssets, getAsset, updateAsset, deleteAsset, searchAssets, generateAssetCode,
+  idQuery, createAsset, listAssets, getAsset, updateAsset, deleteAsset, searchAssets, generateAssetCode,
   listPendingApprovals, approveAsset, rejectAsset, approvalsSummary,
 };
