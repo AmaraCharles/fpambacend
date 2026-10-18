@@ -99,6 +99,9 @@ router.put('/:id',
       if (req.params.id === req.user._id.toString() && req.body.role && req.body.role !== 'System Admin') {
         return res.status(400).json({ error: 'Cannot change your own role' });
       }
+      if (req.params.id === req.user._id.toString() && req.body.isActive === false) {
+        return res.status(400).json({ error: 'Cannot deactivate your own account' });
+      }
       const user = await User.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true }).select('-password').lean();
       if (!user) return res.status(404).json({ error: 'User not found' });
       res.locals.auditEntityId = user.userId;
