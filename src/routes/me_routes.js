@@ -15,11 +15,8 @@ const { auditLog }           = require('../middleware/auditMiddleware');
 
 const auth = [authenticate, resolvePermissions];
 
-function assetQuery(id) {
-  // Handle both legacy AST- IDs and new FGN- format IDs
-  const isObjectId = /^[a-f\d]{24}$/i.test(id);
-  return isObjectId ? { _id: id } : { assetId: id };
-}
+// Accepts assetId, FGN assetCode or Mongo _id.
+const assetQuery = require('../services/assetService').idQuery;
 
 // Filing an M&E report (creating, editing, issuing clearance, or deleting)
 // is restricted to System Admin or anyone assigned to the Monitoring &
@@ -187,10 +184,13 @@ router.patch('/:id/me-reports/:rid', ...auth, requireMeDivision, auditLog('ME_RE
       'status',
     ];
 
+    const alreadyCleared = report.clearanceIssued === true;
     allowed.forEach(k => { if (req.body[k] !== undefined) report[k] = req.body[k]; });
 
     // Auto-set status and write maintenance log when clearance is issued
-    if (req.body.clearanceIssued === true) {
+    // Only the first issue writes the maintenance-log entry; re-saving an
+    // issued clearance used to add a duplicate entry every time.
+    if (req.body.clearanceIssued === true && !alreadyCleared) {
       const sat = req.body.satisfactory !== false;
       report.status = sat ? 'Cleared' : 'Not Cleared';
       report.clearanceDate = report.clearanceDate || new Date();

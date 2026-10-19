@@ -89,7 +89,7 @@ router.get('/:id/relationships', ...auth, async (req, res) => {
 // POST /api/assets/:id/relationships/link
 // Body: { childId }  — links childId as a child of :id, and stamps the
 // child with a {parentCode}-C{seq} code (see utils/assetCodeIndex.js).
-router.post('/:id/relationships/link', ...auth, auditLog('ASSET_LINKED', 'Asset'), async (req, res) => {
+router.post('/:id/relationships/link', ...auth, requirePerm('canEditAssets'), auditLog('ASSET_LINKED', 'Asset'), async (req, res) => {
   try {
     const { childId } = req.body;
     if (!childId) return res.status(400).json({ error: 'childId required' });
@@ -101,8 +101,18 @@ router.post('/:id/relationships/link', ...auth, auditLog('ASSET_LINKED', 'Asset'
     if (!parent) return res.status(404).json({ error: 'Parent asset not found' });
     if (!child)  return res.status(404).json({ error: 'Child asset not found' });
     if (parent.assetId === child.assetId) return res.status(400).json({ error: 'Cannot link asset to itself' });
-    if (AssetCodeIndex.isChildCode(parent.assetCode)) {
+    if (AssetCodeIndex.isChildCode(parent.assetCode) || parent.parentId) {
       return res.status(400).json({ error: 'Parent asset is itself a child asset — one level of nesting only' });
+    }
+    // One level only, in the other direction too: an asset that already has
+    // components can't become someone else's component.
+    if ((child.childIds || []).length) {
+      return res.status(400).json({ error: `${child.name} has its own components — unlink them first (one level of nesting only)` });
+    }
+    // Re-parenting: drop the child from its previous parent, otherwise it
+    // stays listed under both.
+    if (child.parentId && child.parentId !== parent.assetId) {
+      await Asset.updateOne({ assetId: child.parentId }, { $pull: { childIds: child.assetId } });
     }
 
     // Add child to parent's childIds (deduplicate)
@@ -140,7 +150,7 @@ router.post('/:id/relationships/link', ...auth, auditLog('ASSET_LINKED', 'Asset'
 
 // DELETE /api/assets/:id/relationships/unlink
 // Body: { childId }
-router.delete('/:id/relationships/unlink', ...auth, auditLog('ASSET_UNLINKED', 'Asset'), async (req, res) => {
+router.delete('/:id/relationships/unlink', ...auth, requirePerm('canEditAssets'), auditLog('ASSET_UNLINKED', 'Asset'), async (req, res) => {
   try {
     const { childId } = req.body;
     if (!childId) return res.status(400).json({ error: 'childId required' });
@@ -197,7 +207,7 @@ router.get('/:id/lifecycle', ...auth, async (req, res) => {
 
 // POST /api/assets/:id/lifecycle/transition
 // Body: { stage, note, document }
-router.post('/:id/lifecycle/transition', ...auth, auditLog('LIFECYCLE_TRANSITION', 'Asset'), async (req, res) => {
+router.post('/:id/lifecycle/transition', ...auth, requirePerm('canEditAssets'), auditLog('LIFECYCLE_TRANSITION', 'Asset'), async (req, res) => {
   try {
     const { stage, note, document: docName } = req.body;
     if (!stage) return res.status(400).json({ error: 'stage required' });

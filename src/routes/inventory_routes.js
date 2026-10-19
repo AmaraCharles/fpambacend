@@ -33,8 +33,22 @@ const upload = multer({
   limits:  { fileSize: 15 * 1024 * 1024 }, // 15MB — plenty for an inventory sheet
 });
 
-function assetQuery(id) {
-  return (id.startsWith('AST-') || id.startsWith('FGN-')) ? { assetId: id } : { _id: id };
+// Accepts assetId, FGN assetCode or Mongo _id without CastErrors.
+const assetQuery = require('../services/assetService').idQuery;
+
+// Only these fields may be set from a request, coerced to valid values —
+// the body used to be copied onto the item wholesale (including addedBy /
+// editedBy) and saved without validation.
+function cleanItem(body) {
+  const out = {};
+  const str = k => { if (body[k] !== undefined) out[k] = String(body[k] ?? '').trim(); };
+  ['roomName', 'floorLevel', 'item', 'description', 'roomDimension', 'brandName', 'dimensionOfDamage', 'comment'].forEach(str);
+  if (body.location !== undefined) out.location = coerceLocation(body.location);
+  if (body.category !== undefined) out.category = coerceCategory(body.category);
+  if (body.quantity !== undefined) out.quantity = Math.max(0, coerceNumber(body.quantity));
+  if (body.quantityNotFunctioning !== undefined) out.quantityNotFunctioning = Math.max(0, coerceNumber(body.quantityNotFunctioning));
+  if (body.hasDefect !== undefined) out.hasDefect = typeof body.hasDefect === 'boolean' ? body.hasDefect : coerceBool(body.hasDefect);
+  return out;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -230,7 +244,7 @@ router.post('/',
       const asset = await Asset.findOne(assetQuery(req.params.assetId));
       if (!asset) return res.status(404).json({ error: 'Asset not found' });
 
-      const item = { ...req.body, addedBy: req.user._id };
+      const item = { ...cleanItem(req.body), addedBy: req.user._id };
       asset.inventoryItems.push(item);
       await asset.save({ validateBeforeSave: false });
 
@@ -256,7 +270,7 @@ router.put('/:itemId',
       const sub = asset.inventoryItems.id(req.params.itemId);
       if (!sub) return res.status(404).json({ error: 'Inventory item not found' });
 
-      Object.assign(sub, req.body, { editedBy: req.user._id });
+      Object.assign(sub, cleanItem(req.body), { editedBy: req.user._id });
       await asset.save({ validateBeforeSave: false });
 
       res.locals.auditEntityId = asset.assetId;
