@@ -322,6 +322,9 @@ router.post('/:id/photos',
         sizeBytes:   req.file.size,
         length:      req.file.size,
         uploadedAt:  new Date(),
+        // M&E report photos are tagged so a report can show only its own
+        // photos — the field existed on the schema but was never stored.
+        ...(toObjectId(req.body?.meReportId) ? { meReportId: toObjectId(req.body.meReportId) } : {}),
       };
 
       const asset = await Asset.findOneAndUpdate(

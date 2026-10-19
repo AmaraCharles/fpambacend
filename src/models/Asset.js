@@ -106,7 +106,9 @@ const meReportSchema = new Schema({
   reportLocation:     String,
 
   // Report identity
-  reportType:  { type: String, enum: ['secretariat', 'nhp'], required: true },
+  // 'others' = custom task list (used by me.html), previously only saved
+  // because validation was skipped.
+  reportType:  { type: String, enum: ['secretariat', 'nhp', 'others'], required: true },
   reportMonth: { type: Number, min: 1, max: 12, required: true },
   reportYear:  { type: Number, required: true },
 
