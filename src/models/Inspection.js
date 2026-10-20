@@ -38,6 +38,7 @@ const inspectionSchema = new Schema({
     recommendations: String,
     submittedAt:     Date,
     submittedBy:     String,
+    submittedById:   { type: Types.ObjectId, ref: 'User' },   // for notifications
   },
 
   // Filled on approval/rejection

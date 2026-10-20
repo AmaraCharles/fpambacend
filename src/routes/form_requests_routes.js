@@ -26,6 +26,7 @@ const FormRequest = require('../models/FormRequest');
 const { authenticate }                    = require('../middleware/auth');
 const { resolvePermissions, requirePerm } = require('../middleware/resolvePermissions');
 const { auditLog }                        = require('../middleware/auditMiddleware');
+const notify = require('../services/notify');
 const photoSvc = require('../services/photoService');  // reused for generic GridFS storage
 
 const auth = [authenticate, resolvePermissions];
@@ -173,6 +174,7 @@ router.post('/',
 
       res.locals.auditEntityId = String(doc._id);
       res.locals.auditDetail   = `${formType} submitted for ${mda}`;
+      notify.formRequestSubmitted(doc, req.user);
       res.status(201).json({ request: doc });
     } catch (err) { next(err); }
   }
@@ -205,6 +207,7 @@ router.patch('/:id',
         return res.status(400).json({ error: 'This request has already been submitted and can no longer be edited' });
       }
 
+      const statusBefore = request.status;
       if (reviewing) {
         // Review action — status change, remarks, etc.
         const { status, reviewRemarks, reviewStatusDetail } = req.body;
@@ -236,6 +239,10 @@ router.patch('/:id',
       res.locals.auditDetail   = reviewing
         ? `Reviewed — status set to ${request.status}`
         : `Draft updated`;
+      if (request.status !== statusBefore) {
+        if (reviewing) notify.formRequestReviewed(request);
+        else notify.formRequestSubmitted(request, req.user);
+      }
       res.json({ request });
     } catch (err) { next(err); }
   }
@@ -308,6 +315,7 @@ router.post('/:id/issue-certificate',
 
       res.locals.auditEntityId = String(request._id);
       res.locals.auditDetail   = `Certificate ${request.certificateNumber} issued`;
+      notify.certificateIssued(request);
       res.json({ request });
     } catch (err) { next(err); }
   }

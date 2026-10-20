@@ -10,6 +10,7 @@ const { photoUploader, documentUploader, excelUploader } = require('../middlewar
 const { getBuckets }                      = require('../config/gridfs');
 const assetSvc                            = require('../services/assetService');
 const { emitNewAsset }                    = require('../sockets/realtime');
+const notify                              = require('../services/notify');
 const Asset                               = require('../models/Asset');
 const { ObjectId }                        = require('mongodb');
 
@@ -172,6 +173,7 @@ router.post('/:id/approve',
       // can approve an asset they submitted themselves.
       const asset = await assetSvc.approveAsset(req.params.id, req.user._id);
       if (!asset) return res.status(404).json({ error: 'Asset not found' });
+      notify.assetDecided(asset, 'Approved');
       res.locals.auditDetail = `${asset.name} approved`;
       res.json({ asset });
     } catch (err) { next(err); }
@@ -187,6 +189,7 @@ router.post('/:id/reject',
       // Service enforces: only Pending can be rejected, no self-review.
       const asset = await assetSvc.rejectAsset(req.params.id, req.user._id, req.body.reason);
       if (!asset) return res.status(404).json({ error: 'Asset not found' });
+      notify.assetDecided(asset, 'Rejected', req.body.reason);
       res.locals.auditDetail = `${asset.name} rejected — ${req.body.reason || 'no reason given'}`;
       res.json({ asset });
     } catch (err) { next(err); }
@@ -204,6 +207,7 @@ router.post('/',
       res.locals.auditEntityId = asset.assetId;
       res.locals.auditDetail   = `${asset.name} captured`;
       emitNewAsset(asset);
+      notify.assetSubmitted(asset, req.user);
       res.status(201).json({ asset });
     } catch (err) { next(err); }
   }

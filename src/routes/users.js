@@ -6,6 +6,7 @@ const { getRoleConfigOverrides, ROLE_DEFAULTS, SHORT_TO_LONG } = require('../mid
 const { authenticate, requireRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/auditMiddleware');
 const { validateBody, schemas } = require('../middleware/validate');
+const notify = require('../services/notify');
 
 const adminOnly = [authenticate, requireRole('System Admin')];
 
@@ -38,10 +39,12 @@ router.post('/',
   auditLog('USER_CREATED', 'User'),
   async (req, res, next) => {
     try {
-      const user = await User.create({ ...req.body, createdBy: req.user._id });
+      const { sendCredentials, ...fields } = req.body;
+      const user = await User.create({ ...fields, createdBy: req.user._id });
       res.locals.auditEntityId = user.userId;
       res.locals.auditDetail   = `${user.name} (${user.role}) created`;
-      res.status(201).json({ user: user.toSafeObject() });
+      const mail = sendCredentials ? await notify.accountCreated(user, fields.password) : { sent: false };
+      res.status(201).json({ user: user.toSafeObject(), emailed: mail.sent, emailError: sendCredentials && !mail.sent ? mail.reason : undefined });
     } catch (err) {
       if (err.code === 11000) return res.status(409).json({ error: 'Email already in use' });
       next(err);
@@ -149,14 +152,31 @@ router.delete('/:id',
 );
 
 // POST /api/users/:id/reset-password
-router.post('/:id/reset-password', ...adminOnly, async (req, res, next) => {
+// Body (all optional): { password, sendEmail }
+//   password  — set this exact password (min 8 chars); omitted = generate one
+//   sendEmail — also email the new password to the user
+router.post('/:id/reset-password', ...adminOnly, auditLog('USER_UPDATED', 'User'), async (req, res, next) => {
   try {
-    const tempPassword = crypto.randomBytes(8).toString('hex');
+    const { password, sendEmail } = req.body || {};
+    if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    user.password = tempPassword;
+    const newPassword = password || crypto.randomBytes(6).toString('base64url');
+    user.password = newPassword;
+    user.resetToken = undefined;          // any outstanding email link stops working
+    user.resetTokenExpires = undefined;
     await user.save();  // triggers bcrypt pre-save hook
-    res.json({ tempPassword, message: 'Password reset. Share securely with the user.' });
+    res.locals.auditEntityId = user.userId;
+    res.locals.auditDetail   = `Password reset for ${user.name}${sendEmail ? ' (emailed)' : ''}`;
+    const mail = sendEmail ? await notify.passwordResetByAdmin(user, newPassword) : { sent: false };
+    res.json({
+      // Only echo a generated password; an admin-chosen one they already know.
+      tempPassword: password ? undefined : newPassword,
+      emailed: mail.sent,
+      emailError: sendEmail && !mail.sent ? mail.reason : undefined,
+    });
   } catch (err) { next(err); }
 });
 

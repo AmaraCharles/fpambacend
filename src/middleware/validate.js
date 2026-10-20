@@ -91,6 +91,8 @@ const schemas = {
     zone:     Joi.string().allow(''),
     states:   Joi.array().items(Joi.string()),
     lgas:     Joi.array().items(Joi.string()),
+    // Email the sign-in details (including this password) to the new user.
+    sendCredentials: Joi.boolean(),
   }),
 
   // User update

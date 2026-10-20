@@ -8,6 +8,7 @@ const Inspection = require('../models/Inspection');
 const Asset      = require('../models/Asset');
 const AssetCodeIndex = require('../utils/assetCodeIndex');
 const assetService   = require('../services/assetService');
+const notify         = require('../services/notify');
 const { authenticate }              = require('../middleware/auth');
 const { resolvePermissions, requirePerm } = require('../middleware/resolvePermissions');
 const { auditLog }                  = require('../middleware/auditMiddleware');
@@ -139,9 +140,10 @@ router.post('/:id/submit', ...auth, auditLog('INSPECTION_SUBMITTED', 'Inspection
     if (!condition || !findings) return res.status(400).json({ error: 'condition and findings required' });
 
     insp.status = 'Submitted';
-    insp.report = { condition, date, findings, recommendations, submittedAt: new Date(), submittedBy: req.user?.name || 'Agent' };
+    insp.report = { condition, date, findings, recommendations, submittedAt: new Date(), submittedBy: req.user?.name || 'Agent', submittedById: req.user?._id };
     insp.history.push({ status: 'Submitted', at: new Date(), by: req.user?.name || 'Agent' });
     await insp.save();
+    notify.inspectionSubmitted(insp, req.user?._id);
     res.json({ inspection: insp });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -216,6 +218,7 @@ router.post('/:id/approve', ...auth, requirePerm('canApproveAssets'), auditLog('
       await asset.save({ validateBeforeSave: false });
     }
 
+    notify.inspectionDecided(insp, 'Approved');
     res.json({ inspection: insp });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -234,6 +237,7 @@ router.post('/:id/reject', ...auth, requirePerm('canApproveAssets'), auditLog('I
     insp.reviewedBy      = req.user?.name || 'Supervisor';
     insp.history.push({ status: 'Rejected', at: new Date(), by: req.user?.name || 'Supervisor', note: req.body.reason });
     await insp.save();
+    notify.inspectionDecided(insp, 'Rejected', req.body.reason);
     res.json({ inspection: insp });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
