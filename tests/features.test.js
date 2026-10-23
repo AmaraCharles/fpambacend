@@ -77,6 +77,14 @@ describe('data quality', () => {
     expect((await request(app).post('/api/data-quality/fix-state').set(A(adminToken)).send({ from: 'lagos', to: 'Narnia' })).status).toBe(422);
   });
 
+  it('lists assignees for managers only, without MDA Agents', async () => {
+    await makeUser({ role: 'MDA Agent', mda: 'FMW', division: null });
+    const res = await request(app).get('/api/data-quality/assignees').set(A(adminToken));
+    expect(res.body.users.length).toBeGreaterThan(1);
+    expect(res.body.users.some(u => u.role === 'MDA Agent')).toBe(false);
+    expect((await request(app).get('/api/data-quality/assignees').set(A(agentToken))).status).toBe(403);
+  });
+
   it('assigns fixes, notifies the assignee, and blocks self-verification', async () => {
     const Notification = require('../src/models/Notification');
     const res = await request(app).post('/api/data-quality/assign').set(A(adminToken)).send({ assetIds: ['DQ-4'], userId: String(agent._id), note: 'Fix the MDA' });

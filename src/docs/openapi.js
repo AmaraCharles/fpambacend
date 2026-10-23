@@ -94,6 +94,7 @@ const ROUTES = [
   ['post', '/data-quality/fix-mda', 'Data quality', 'Rename an MDA spelling everywhere: { from, to }.'],
   ['post', '/data-quality/assign', 'Data quality', 'Assign assets to someone to fix: { assetIds, userId, note }.'],
   ['post', '/data-quality/verify', 'Data quality', 'Mark fixes verified: { assetIds }.'],
+  ['get', '/data-quality/assignees', 'Data quality', 'Staff who can be assigned fixes.'],
   // System
   ['get', '/system/ping', 'System', 'Public liveness + database check (for uptime monitors).', { auth: false }],
   ['get', '/system/health', 'System', 'Detailed health (System Admin).'],

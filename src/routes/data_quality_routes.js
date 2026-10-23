@@ -7,6 +7,7 @@
 //   POST /api/data-quality/fix-mda   {from,to} — rename an MDA spelling on every asset
 //   POST /api/data-quality/assign    {assetIds,userId,note}
 //   POST /api/data-quality/verify    {assetIds}
+//   GET  /api/data-quality/assignees     — staff who can be assigned fixes
 const router = require('express').Router();
 const { Types } = require('mongoose');
 const Asset = require('../models/Asset');
@@ -146,6 +147,14 @@ router.post('/fix-mda', requireRole(...FIXERS), async (req, res, next) => {
     const mda = await Mda.findOne({ name: String(to || '') }).lean();
     if (!mda) return res.status(422).json({ error: 'Choose an MDA from the MDA list (add it in Settings first if it is missing)' });
     res.json(await bulkRename('mda', String(from), mda.name, req.user, req.ip));
+  } catch (err) { next(err); }
+});
+
+// Staff who can be given fixes (the user list itself is System Admin-only).
+router.get('/assignees', requireRole(...MANAGERS), async (_req, res, next) => {
+  try {
+    const users = await User.find({ isActive: true, role: { $ne: 'MDA Agent' } }, { name: 1, role: 1, division: 1 }).sort({ name: 1 }).lean();
+    res.json({ users });
   } catch (err) { next(err); }
 });
 
