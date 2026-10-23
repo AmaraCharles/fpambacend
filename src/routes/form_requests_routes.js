@@ -21,6 +21,7 @@
 
 const router  = require('express').Router();
 const multer  = require('multer');
+const { scanUploads } = require('../middleware/fileScan');
 const FormRequest = require('../models/FormRequest');
 
 const { authenticate }                    = require('../middleware/auth');
@@ -253,7 +254,7 @@ router.patch('/:id',
 // ═══════════════════════════════════════════════════════════════════════════
 router.post('/:id/attachments',
   ...auth,
-  upload.single('file'),
+  upload.single('file'), scanUploads,
   auditLog('FORM_REQUEST_ATTACHMENT_ADDED', 'FormRequest'),
   async (req, res, next) => {
     try {
@@ -293,7 +294,7 @@ router.post('/:id/attachments',
 router.post('/:id/issue-certificate',
   ...auth,
   requirePerm('canReviewFormRequests'),
-  upload.single('certificate'),
+  upload.single('certificate'), scanUploads,
   auditLog('CERTIFICATE_ISSUED', 'FormRequest'),
   async (req, res, next) => {
     try {

@@ -272,6 +272,17 @@ const assetSchema = new Schema({
   // index, so legacy assets missing state/mda are never blocked by this.
   dupKey: { type: String, default: null },
 
+  // Data-quality clean-up workflow: an admin assigns an asset with data
+  // problems to someone, they fix it, a reviewer marks it verified.
+  dataQuality: {
+    assignedTo: { type: Types.ObjectId, ref: 'User' },
+    assignedBy: { type: Types.ObjectId, ref: 'User' },
+    assignedAt: Date,
+    note:       String,
+    verifiedBy: { type: Types.ObjectId, ref: 'User' },
+    verifiedAt: Date,
+  },
+
   // ── Assessment ────────────────────────────────────────────────────────────
   assessed: {
     type:    String,

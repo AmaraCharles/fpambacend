@@ -10,6 +10,7 @@ function buildLimiter(max, windowMs) {
     max,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: () => env.NODE_ENV === 'test',   // automated tests sign in many times
     handler: (_req, res) => res.status(429).json({ error: 'Too many requests — please slow down.' }),
   };
 

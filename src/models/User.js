@@ -88,6 +88,23 @@ const userSchema = new Schema({
   // One-time password reset token
   resetToken:        { type: String, select: false },
   resetTokenExpires: { type: Date,   select: false },
+
+  // Mobile number for SMS alerts (optional).
+  phone: { type: String, trim: true, default: null },
+
+  // Bumped to sign the user out everywhere: every issued token carries the
+  // version it was issued at, and auth rejects tokens from older versions.
+  // Bumped on password change/reset, deactivation and "sign out everywhere".
+  tokenVersion: { type: Number, default: 0 },
+
+  // Two-step sign-in (TOTP authenticator app).
+  mfa: {
+    enabled:       { type: Boolean, default: false },
+    secret:        { type: String, select: false },
+    pendingSecret: { type: String, select: false },   // during setup, until confirmed
+    recoveryCodes: { type: [String], select: false }, // sha256 hashes; each works once
+    enabledAt:     Date,
+  },
 }, {
   timestamps: true,
 });
@@ -124,6 +141,8 @@ userSchema.methods.toSafeObject = function () {
   delete obj.password;
   delete obj.resetToken;
   delete obj.resetTokenExpires;
+  if (obj.mfa) obj.mfa = { enabled: !!obj.mfa.enabled, enabledAt: obj.mfa.enabledAt };
+  delete obj.tokenVersion;
   return obj;
 };
 

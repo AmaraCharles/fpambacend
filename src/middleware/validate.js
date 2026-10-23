@@ -91,6 +91,8 @@ const schemas = {
     zone:     Joi.string().allow(''),
     states:   Joi.array().items(Joi.string()),
     lgas:     Joi.array().items(Joi.string()),
+    // Mobile number for SMS alerts (optional), e.g. 08031234567 or +2348031234567.
+    phone:    Joi.string().pattern(/^\+?[0-9 ()-]{7,20}$/).allow('', null),
     // Email the sign-in details (including this password) to the new user.
     sendCredentials: Joi.boolean(),
   }),
@@ -108,6 +110,8 @@ const schemas = {
     zone:     Joi.string().allow(''),
     states:   Joi.array().items(Joi.string()),
     lgas:     Joi.array().items(Joi.string()),
+    // Mobile number for SMS alerts (optional), e.g. 08031234567 or +2348031234567.
+    phone:    Joi.string().pattern(/^\+?[0-9 ()-]{7,20}$/).allow('', null),
   }),
 
   // Permission overrides — short key names matching the frontend and User model

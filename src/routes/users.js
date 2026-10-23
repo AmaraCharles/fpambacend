@@ -142,7 +142,8 @@ router.delete('/:id',
       if (req.params.id === req.user._id.toString()) {
         return res.status(400).json({ error: 'Cannot deactivate your own account' });
       }
-      const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true }).lean();
+      // Deactivating also ends every session the user has open.
+      const user = await User.findByIdAndUpdate(req.params.id, { isActive: false, $inc: { tokenVersion: 1 } }, { new: true }).lean();
       if (!user) return res.status(404).json({ error: 'User not found' });
       res.locals.auditEntityId = user.userId;
       res.locals.auditDetail   = `${user.name} deactivated`;
@@ -152,6 +153,18 @@ router.delete('/:id',
 );
 
 // POST /api/users/:id/reset-password
+// POST /api/users/:id/reset-mfa — turn off two-step sign-in for a user who lost their phone
+router.post('/:id/reset-mfa', ...adminOnly, auditLog('USER_UPDATED', 'User'), async (req, res, next) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.params.id,
+      { $set: { mfa: { enabled: false } }, $inc: { tokenVersion: 1 } }, { new: true }).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.locals.auditEntityId = user.userId;
+    res.locals.auditDetail   = `Two-step sign-in reset for ${user.name}`;
+    res.json({ message: 'Two-step sign-in turned off; the user must set it up again' });
+  } catch (err) { next(err); }
+});
+
 // Body (all optional): { password, sendEmail }
 //   password  — set this exact password (min 8 chars); omitted = generate one
 //   sendEmail — also email the new password to the user
@@ -167,6 +180,7 @@ router.post('/:id/reset-password', ...adminOnly, auditLog('USER_UPDATED', 'User'
     user.password = newPassword;
     user.resetToken = undefined;          // any outstanding email link stops working
     user.resetTokenExpires = undefined;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;   // and every open session
     await user.save();  // triggers bcrypt pre-save hook
     res.locals.auditEntityId = user.userId;
     res.locals.auditDetail   = `Password reset for ${user.name}${sendEmail ? ' (emailed)' : ''}`;

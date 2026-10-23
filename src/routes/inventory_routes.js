@@ -17,6 +17,7 @@
 
 const router  = require('express').Router({ mergeParams: true });
 const multer  = require('multer');
+const { scanUploads } = require('../middleware/fileScan');
 const ExcelJS = require('exceljs');
 const { Types } = require('mongoose');
 const Asset   = require('../models/Asset');
@@ -311,7 +312,7 @@ router.delete('/:itemId',
 router.post('/import-preview',
   ...auth,
   requirePerm('canEditInventory'),
-  upload.single('file'),
+  upload.single('file'), scanUploads,
   async (req, res, next) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });

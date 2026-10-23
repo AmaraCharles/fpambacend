@@ -1,14 +1,27 @@
 'use strict';
 const multer = require('multer');
 const env = require('../config/env');
+const { scanUploads } = require('./fileScan');
 
 // Use memory storage — services handle the actual GridFS write
 // This avoids multer-gridfs-storage compatibility issues with MongoDB 6+
 
 const MB = 1024 * 1024;
 
+// Every uploader also runs scanUploads (content check + optional antivirus)
+// right after multer, so routes using .single()/.array()/.fields() get it
+// automatically.
+function withScan(m) {
+  return {
+    single: (...a) => [m.single(...a), scanUploads],
+    array:  (...a) => [m.array(...a), scanUploads],
+    fields: (...a) => [m.fields(...a), scanUploads],
+    any:    (...a) => [m.any(...a), scanUploads],
+  };
+}
+
 function createUploader(maxSizeMB, allowedMimes) {
-  return multer({
+  return withScan(multer({
     storage: multer.memoryStorage(),
     limits:  { fileSize: maxSizeMB * MB },
     fileFilter: (_req, file, cb) => {
@@ -18,7 +31,7 @@ function createUploader(maxSizeMB, allowedMimes) {
         cb(new Error(`File type ${file.mimetype} not allowed`), false);
       }
     },
-  });
+  }));
 }
 
 const photoUploader = createUploader(env.MAX_PHOTO_SIZE_MB, [

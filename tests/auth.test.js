@@ -1,20 +1,16 @@
 'use strict';
 const request = require('supertest');
 
-// Minimal smoke tests — full suite requires running MongoDB + Redis
-// Run: npm test
+const { startDb, stopDb } = require('./helpers/memoryDb');
 
+// Smoke tests against an in-memory MongoDB (see tests/helpers/memoryDb.js).
 let app;
 
 beforeAll(async () => {
-  process.env.NODE_ENV  = 'test';
-  process.env.JWT_SECRET = 'test-secret-must-be-at-least-32-characters';
-  process.env.MONGO_URI  = process.env.TEST_MONGO_URI || 'mongodb://localhost:27017/assetspatial_test';
-  process.env.REDIS_URL  = process.env.TEST_REDIS_URL || 'redis://localhost:6379';
+  await startDb();
   app = require('../src/app');
-  // Give app time to connect
-  await new Promise((r) => setTimeout(r, 2000));
 });
+afterAll(stopDb);
 
 describe('Health check', () => {
   it('GET /health returns 200', async () => {

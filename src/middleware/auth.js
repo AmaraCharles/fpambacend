@@ -21,9 +21,17 @@ async function authenticate(req, res, next) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
+    // Short-lived "password OK, now enter your code" tokens are only good for
+    // /auth/mfa/verify, never for the API.
+    if (payload.purpose) return res.status(401).json({ error: 'Invalid or expired token' });
+
     const user = await User.findById(payload.sub).select('-password -resetToken -resetTokenExpires').lean();
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'Account not found or deactivated' });
+    }
+    // Signed out everywhere (password changed, "sign out everywhere", etc.)
+    if ((payload.tv || 0) !== (user.tokenVersion || 0)) {
+      return res.status(401).json({ error: 'Your session has ended — please sign in again' });
     }
 
     req.user = user;

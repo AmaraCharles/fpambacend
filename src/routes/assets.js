@@ -11,6 +11,7 @@ const { getBuckets }                      = require('../config/gridfs');
 const assetSvc                            = require('../services/assetService');
 const { emitNewAsset }                    = require('../sockets/realtime');
 const notify                              = require('../services/notify');
+const { normalizeState, NIGERIA_STATES }  = require('../utils/states');
 const Asset                               = require('../models/Asset');
 const { ObjectId }                        = require('mongodb');
 
@@ -198,8 +199,17 @@ router.post('/:id/reject',
 
 
 
+// Map state spellings onto the canonical list; reject unknown states.
+function normalizeAssetState(req, res, next) {
+  if (!('state' in (req.body || {}))) return next();
+  const s = normalizeState(req.body.state);
+  if (s === null) return res.status(422).json({ error: `"${req.body.state}" is not a recognised state. Use one of: ${NIGERIA_STATES.join(', ')}` });
+  req.body.state = s;
+  next();
+}
+
 router.post('/',
-  ...auth, requirePerm('canCreateAssets'), validateBody(schemas.asset),
+  ...auth, requirePerm('canCreateAssets'), normalizeAssetState, validateBody(schemas.asset),
   auditLog('ASSET_CREATED', 'Asset'),
   async (req, res, next) => {
     try {
@@ -254,7 +264,7 @@ router.get('/:id', ...auth, async (req, res, next) => {
 // validateBody(schemas.asset) intentionally removed — partial updates omit
 // required fields and would 422. assetService.updateAsset handles field safety.
 router.put('/:id',
-  ...auth, requirePerm('canEditAssets'),
+  ...auth, requirePerm('canEditAssets'), normalizeAssetState,
   auditLog('ASSET_UPDATED', 'Asset'),
   async (req, res, next) => {
     try {

@@ -10,6 +10,9 @@ const env           = require('./config/env');
 const { connectDB } = require('./config/db');
 const { getRedis }  = require('./config/redis');
 const { initRealtime } = require('./sockets/realtime');
+const { corsOrigin } = require('./config/origins');
+const ErrorLog = require('./models/ErrorLog');
+const { buildSpec, DOCS_HTML, DOCS_CSP } = require('./docs/openapi');
 
 // Routes
 const authRoute      = require('./routes/auth');
@@ -47,17 +50,7 @@ app.set("trust proxy", 1);
 
 // ── Security & compression ────────────────────────────────────────────────────
 app.use(helmet());
-app.use(cors({
-  origin: (origin, cb) => {
-    const allowed = !origin
-      || origin === env.CLIENT_URL
-      ||origin === "https://fpam.vercel.app"
-      ||origin === "https://fpam.fmhud.gov.ng"
-      || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-    cb(null, allowed);
-  },
-  credentials: true,
-}));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(compression());
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -131,6 +124,17 @@ app.use('/api/assets/files', require('./routes/files_route'));
 
 app.use('/api/form-requests', formRequestsRoute);
 
+app.use('/api/notifications', require('./routes/notifications_routes'));
+app.use('/api/system',        require('./routes/system_routes'));
+app.use('/api/data-quality',  require('./routes/data_quality_routes'));
+
+// API documentation (OpenAPI + Swagger UI)
+app.get('/api/docs/openapi.json', (_req, res) => res.json(buildSpec('/api')));
+app.get(['/api/docs', '/api/docs/'], (_req, res) => {
+  res.setHeader('Content-Security-Policy', DOCS_CSP);
+  res.type('html').send(DOCS_HTML);
+});
+
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   const status = err.status || err.statusCode || 500;
@@ -138,7 +142,14 @@ app.use((err, _req, res, _next) => {
     ? 'Internal server error'
     : err.message;
 
-  if (status === 500) console.error('[Error]', err);
+  if (status === 500) {
+    console.error('[Error]', err);
+    // Kept for the System health page (30 days).
+    ErrorLog.create({
+      source: 'server', message: String(err.message || err).slice(0, 1000), stack: String(err.stack || '').slice(0, 8000),
+      url: _req.originalUrl, method: _req.method, status, user: _req.user?._id, ip: _req.ip,
+    }).catch(() => {});
+  }
 
   res.status(status).json({ error: message });
 });
@@ -164,9 +175,13 @@ async function start() {
   process.on('SIGINT',  () => shutdown('SIGINT'));
 }
 
-start().catch((err) => {
-  console.error('[AssetSpatial] Failed to start:', err);
-  process.exit(1);
-});
+// Tests import the app without starting a server (they connect to their own
+// in-memory database); `node src/app.js` and any non-test run start it.
+if (require.main === module || process.env.NODE_ENV !== 'test') {
+  start().catch((err) => {
+    console.error('[AssetSpatial] Failed to start:', err);
+    process.exit(1);
+  });
+}
 
 module.exports = app;
