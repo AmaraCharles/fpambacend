@@ -15,6 +15,7 @@ Atlas; the dashboard is built into the `fpam-real` repo and served by Vercel.
 | `APP_URL` | recommended | Base for links in emails, e.g. `https://fpam.fmhud.gov.ng/app` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | for email | Without `SMTP_HOST` no email is sent (each is logged and skipped) |
 | `SMS_PROVIDER` + provider keys | optional | `termii` (`TERMII_API_KEY`, `TERMII_SENDER_ID`), `twilio` (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`) or `africastalking` (`AT_USERNAME`, `AT_API_KEY`, `AT_SENDER_ID`) |
+| `MFA_REQUIRED_ROLES` | no (default `System Admin,Supervisor,Sub-Head`) | Roles that must turn on two-step sign-in before using the dashboard. `none` turns the requirement off. |
 | `CLAMAV_HOST`, `CLAMAV_PORT` | optional | Virus-scan uploads with a ClamAV daemon. `CLAMAV_REQUIRED=true` rejects uploads when the scanner is down. |
 
 System Admins can see which of these are working under **System health** in the dashboard.
@@ -49,7 +50,7 @@ Backups contain password hashes: store them encrypted, not in email or chat.
 
 ## 6. Security features to know about
 
-- **Two-step sign-in:** users turn it on under Account security. Admins can reset it for someone who lost their phone (Users → shield button). Recovery codes work once each.
+- **Two-step sign-in:** required for System Admins, Supervisors and Sub-Heads (they're shown a setup screen until it's on; change with `MFA_REQUIRED_ROLES`); optional for everyone else under Account security. Admins can reset it for someone who lost their phone (Users → shield button). Recovery codes work once each.
 - **Sign out everywhere:** password changes/resets, deactivation and the Sessions tab revoke every token.
 - **Uploads:** every file's contents are checked against its type before storage (disguised executables, scripted PDFs and macro files are rejected).
 - **API docs:** `https://fpambacend.onrender.com/api/docs`.

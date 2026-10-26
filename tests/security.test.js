@@ -89,6 +89,29 @@ describe('two-step sign-in', () => {
   });
 });
 
+describe('required two-step sign-in', () => {
+  afterAll(() => { process.env.MFA_REQUIRED_ROLES = 'none'; });
+  it('blocks the API for required roles until two-step sign-in is on', async () => {
+    process.env.MFA_REQUIRED_ROLES = 'System Admin,Supervisor';
+    const sup = await makeUser({ role: 'Supervisor', division: 'All' });
+    const field = await makeUser();
+    const res = await login(app, sup.email);
+    expect(res.body.user.mfaSetupRequired).toBe(true);
+    const auth = { Authorization: `Bearer ${res.body.token}` };
+    const blocked = await request(app).get('/api/assets').set(auth);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('MFA_SETUP_REQUIRED');
+    expect((await request(app).get('/api/auth/me').set(auth)).body.user.mfaSetupRequired).toBe(true);
+    // Field agents aren't affected
+    const ft = (await login(app, field.email)).body.token;
+    expect((await request(app).get('/api/assets').set('Authorization', `Bearer ${ft}`)).status).toBe(200);
+    // Setting it up (allowed while blocked) unblocks the API
+    const setup = await request(app).post('/api/auth/mfa/setup').set(auth);
+    expect((await request(app).post('/api/auth/mfa/enable').set(auth).send({ code: totp.totp(setup.body.secret) })).status).toBe(200);
+    expect((await request(app).get('/api/assets').set(auth)).status).toBe(200);
+  });
+});
+
 describe('uploads and states', () => {
   let token, assetId;
   beforeAll(async () => {

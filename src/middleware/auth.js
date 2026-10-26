@@ -2,6 +2,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const env = require('../config/env');
+const { mfaSetupRequired } = require('../utils/mfaPolicy');
 
 /**
  * Verify JWT and attach req.user
@@ -32,6 +33,12 @@ async function authenticate(req, res, next) {
     // Signed out everywhere (password changed, "sign out everywhere", etc.)
     if ((payload.tv || 0) !== (user.tokenVersion || 0)) {
       return res.status(401).json({ error: 'Your session has ended — please sign in again' });
+    }
+
+    // Roles that must use two-step sign-in can only reach /api/auth/* (to set
+    // it up, change password, sign out) until they've turned it on.
+    if (mfaSetupRequired(user) && !req.originalUrl.startsWith('/api/auth/')) {
+      return res.status(403).json({ error: 'Set up two-step sign-in to continue', code: 'MFA_SETUP_REQUIRED' });
     }
 
     req.user = user;

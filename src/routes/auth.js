@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const { authLimiter } = require('../middleware/rateLimiter');
 const env = require('../config/env');
 const totp = require('../utils/totp');
+const { mfaSetupRequired } = require('../utils/mfaPolicy');
 const crypto = require('crypto');
 const sha256 = v => crypto.createHash('sha256').update(String(v)).digest('hex');
 
@@ -27,7 +28,7 @@ async function finishLogin(req, res, userDoc, detail) {
     entityType: 'User', performedBy: userDoc._id, detail,
     ipAddress: req.ip, userAgent: req.get('user-agent'),
   }).catch(() => {});
-  res.json({ token: signToken(userDoc), user: userDoc.toSafeObject() });
+  res.json({ token: signToken(userDoc), user: { ...userDoc.toSafeObject(), mfaSetupRequired: mfaSetupRequired(userDoc) } });
 }
 
 router.post('/login', authLimiter, validateBody(schemas.login), async (req, res, next) => {
@@ -134,7 +135,7 @@ router.post('/logout', authenticate, async (req, res, next) => {
 
 // GET /api/auth/me
 router.get('/me', authenticate, (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: { ...req.user, mfaSetupRequired: mfaSetupRequired(req.user) } });
 });
 
 // ── Password self-service ────────────────────────────────────────────────────

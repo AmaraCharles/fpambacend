@@ -7,3 +7,6 @@ process.env.MONGO_URI = 'mongodb://127.0.0.1:1/not-used-in-tests';
 delete process.env.SMTP_HOST;
 delete process.env.SMS_PROVIDER;
 delete process.env.CLAMAV_HOST;
+// Most tests use admin/supervisor accounts without two-step sign-in; the
+// enforcement test switches this on explicitly.
+process.env.MFA_REQUIRED_ROLES = 'none';
