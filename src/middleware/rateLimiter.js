@@ -47,5 +47,8 @@ function roleLimiter() {
 }
 
 const authLimiter = buildLimiter(20, 15 * 60 * 1000);
+// Public (no sign-in) endpoints used by scanned QR labels.
+const publicReadLimiter   = buildLimiter(60, 15 * 60 * 1000);
+const publicReportLimiter = buildLimiter(5, 60 * 60 * 1000);
 
-module.exports = { roleLimiter, authLimiter };
+module.exports = { roleLimiter, authLimiter, publicReadLimiter, publicReportLimiter };

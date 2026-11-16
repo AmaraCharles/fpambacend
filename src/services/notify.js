@@ -13,6 +13,8 @@
 //   Form request reviewed (status change)   The MDA agent                     ✓       ✓     ✓
 //   Certificate issued                      The MDA agent                     ✓       ✓     ✓
 //   Data-quality fix assigned               The assignee                      ✓       ✓
+//   Public report from a QR scan            The asset's MDA Agents, approvers,  ✓       ✓
+//                                           Building Training & Maintenance
 //   Account created / password reset        The user                                  ✓ (on request)
 //   Forgot-password link                    The user                                  ✓
 //
@@ -185,6 +187,33 @@ exports.dataQualityAssigned = (assigneeId, assets, assignedBy, note) => run(asyn
 
 // ── Accounts ─────────────────────────────────────────────────────────────────
 // These return the send result so the caller can tell the admin whether it went.
+// ── Public reports (QR label scans) ──────────────────────────────────────────
+// The asset's MDA Agents (portal), plus FPAM approvers and the Building
+// Training & Maintenance division (dashboard).
+exports.publicReportSubmitted = report => run(async () => {
+  if (!report) return;
+  const base = {
+    type: 'PUBLIC_REPORT', title: `Public report: ${report.category}`, icon: 'fa-triangle-exclamation',
+    color: report.severity === 'High' ? '#e05555' : '#f0a500',
+    body: `"${report.assetName}"${report.state ? ` (${report.state})` : ''}: ${report.description.slice(0, 140)}`,
+  };
+  const email = link => ({
+    subject: `Public report ${report.ref}: ${report.category} at ${report.assetName}`,
+    heading: 'A member of the public reported a problem',
+    lines: [`Asset: ${report.assetName} (${report.assetId})${report.mda ? `, ${report.mda}` : ''}`,
+      `Problem: ${report.category}, severity ${report.severity}`, report.description],
+    cta: { label: 'Open the report', url: `${appUrl()}${link}` },
+  });
+  const agents = report.mda
+    ? await User.find({ role: 'MDA Agent', mda: report.mda, isActive: true }, PROJ).lean()
+    : [];
+  const staff = (await User.find({ isActive: true, $or: [
+    { role: { $in: APPROVER_ROLES } }, { division: 'Building Training & Maintenance' },
+  ] }, PROJ).lean());
+  if (agents.length) await deliver(agents, { ...base, link: '/portal?tab=reports', email: email('/portal?tab=reports') });
+  if (staff.length) await deliver(staff, { ...base, link: '/reports', email: email('/reports') });
+});
+
 exports.accountCreated = (user, password) => sendMail({
   to: user.email,
   subject: 'Your FPAM Asset Platform account',
