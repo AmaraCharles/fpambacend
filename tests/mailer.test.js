@@ -26,6 +26,13 @@ describe('mailer', () => {
     expect(sent[1].bcc).toEqual(['a@b.c', 'd@e.f']);
   });
 
+  it('picks the SOCKS proxy for a fixed outbound IP', () => {
+    expect(mailer.smtpProxy({})).toBeNull();
+    expect(mailer.smtpProxy({ FIXIE_SOCKS_HOST: 'u:p@x.usefixie.com:1080' })).toBe('socks5://u:p@x.usefixie.com:1080');
+    expect(mailer.smtpProxy({ QUOTAGUARDSTATIC_URL: 'http://u:p@us-east.quotaguard.com:9293' })).toBe('socks5://u:p@us-east.quotaguard.com:1080');
+    expect(mailer.smtpProxy({ SMTP_PROXY: 'socks5://a:b@h:1', FIXIE_SOCKS_HOST: 'u:p@x:1080' })).toBe('socks5://a:b@h:1');
+  });
+
   it('reports a transport failure instead of throwing', async () => {
     process.env.SMTP_HOST = 'fake';
     mailer._setTransportForTests({ sendMail: async () => { throw new Error('down'); } });

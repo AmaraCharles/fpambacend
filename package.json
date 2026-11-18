@@ -42,7 +42,8 @@
     "pdfkit": "^0.14.0",
     "rate-limit-redis": "^4.2.0",
     "sharp": "^0.33.1",
-    "socket.io": "^4.6.2"
+    "socket.io": "^4.6.2",
+    "socks": "^2.8.10"
   },
   "devDependencies": {
     "jest": "^29.7.0",
@@ -51,6 +52,6 @@
     "supertest": "^6.3.4"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "24.x"
   }
 }

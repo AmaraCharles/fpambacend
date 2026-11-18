@@ -11,6 +11,15 @@
 // Without SMTP_HOST nothing is sent — each message is logged instead — so the
 // app keeps working before email is set up. Sending never throws: a mail
 // failure must not fail the request that triggered it.
+//
+// Fixed outbound IP (for mail servers that only accept approved IPs, such as
+// the Galaxy Backbone relay). Heroku has no fixed IP, so mail goes through a
+// SOCKS5 proxy add-on when one is present — checked in this order:
+//   SMTP_PROXY=socks5://user:pass@host:1080   (explicit, any host)
+//   FIXIE_SOCKS_HOST=user:pass@host:1080      (set by the Fixie Socks add-on)
+//   QUOTAGUARDSTATIC_URL=http://user:pass@host:9293 (QuotaGuard Static; its
+//                                              SOCKS5 port 1080 is used)
+// None set (e.g. on Render, whose outbound IPs are already fixed) → direct.
 
 const nodemailer = require('nodemailer');
 
@@ -18,15 +27,33 @@ let transport = null;
 
 const isConfigured = () => !!process.env.SMTP_HOST;
 
+/** SOCKS5 proxy URL for outgoing mail, or null to connect directly. */
+function smtpProxy(env = process.env) {
+  if (env.SMTP_PROXY) return env.SMTP_PROXY;
+  if (env.FIXIE_SOCKS_HOST) return `socks5://${env.FIXIE_SOCKS_HOST}`;
+  if (env.QUOTAGUARDSTATIC_URL) {
+    const u = new URL(env.QUOTAGUARDSTATIC_URL);
+    const auth = u.username ? `${u.username}:${u.password}@` : '';
+    return `socks5://${auth}${u.hostname}:1080`;
+  }
+  return null;
+}
+
 function getTransport() {
   if (!transport) {
     const port = Number(process.env.SMTP_PORT || 587);
+    const proxy = smtpProxy();
     transport = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port,
       secure: process.env.SMTP_SECURE === 'true' || port === 465,
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+      ...(proxy ? { proxy } : {}),
     });
+    if (proxy) {
+      transport.set('proxy_socks_module', require('socks'));
+      console.log(`[mail] sending through SOCKS proxy ${new URL(proxy).hostname}`);
+    }
   }
   return transport;
 }
@@ -83,4 +110,4 @@ async function sendMail({ to, subject, heading, lines, cta, footnote }) {
   }
 }
 
-module.exports = { sendMail, isConfigured, appUrl, render, _setTransportForTests: t => { transport = t; } };
+module.exports = { sendMail, isConfigured, appUrl, render, smtpProxy, _setTransportForTests: t => { transport = t; } };
