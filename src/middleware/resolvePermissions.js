@@ -44,7 +44,11 @@ const ROLE_DEFAULTS = {
     canExportData: false,   canBulkExport: false,
     canManageUsers: false,  canViewAudit: false,   canManageSettings: false,
     canApproveAssets: true,
-    canEditInventory: false, canReviewFormRequests: true, canSubmitFormRequests: true,
+    // canEditInventory:true — matches the original frontend app.js's
+    // ROLE_DEFAULTS exactly (confirmed once that file was actually
+    // available); the earlier `false` here was my own guess, made without
+    // access to that file, and it was wrong.
+    canEditInventory: true, canReviewFormRequests: true, canSubmitFormRequests: true,
     canRunOCR: true,
   },
   'GIS Analyst': {
@@ -67,7 +71,11 @@ const ROLE_DEFAULTS = {
     canExportData: false,   canBulkExport: false,
     canManageUsers: false,  canViewAudit: false,   canManageSettings: false,
     canApproveAssets: false,
-    canEditInventory: false, canReviewFormRequests: false, canSubmitFormRequests: true,
+    // canEditInventory:true — same correction as Sub-Head above. Field
+    // Agents are the ones physically walking a facility cataloguing
+    // inventory during capture, so this makes sense as true; my earlier
+    // guess of false was wrong, made without the original frontend file.
+    canEditInventory: true, canReviewFormRequests: false, canSubmitFormRequests: true,
     canRunOCR: true,
   },
 };

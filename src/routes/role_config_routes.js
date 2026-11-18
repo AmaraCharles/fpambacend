@@ -56,13 +56,17 @@ const FACTORY_DEFAULTS = {
     canCreate: true,  canEdit: false, canDelete: false, canApprove: false,
     canExport: false, canViewAll: false, canManageUsers: false,
     canViewAudit: false, canManageSettings: false,
-    canEditInventory: false, canSubmitFormRequests: true, canReviewFormRequests: false,
+    // canEditInventory:true — corrected to match the original frontend
+    // app.js's ROLE_DEFAULTS (Field Agents physically catalogue inventory
+    // during capture); the earlier `false` here was a guess made before
+    // that file was available, and it was wrong.
+    canEditInventory: true, canSubmitFormRequests: true, canReviewFormRequests: false,
   },
   'Sub-Head': {
     canCreate: true,  canEdit: false, canDelete: false, canApprove: true,
     canExport: false, canViewAll: true, canManageUsers: false,
     canViewAudit: false, canManageSettings: false,
-    canEditInventory: false, canSubmitFormRequests: true, canReviewFormRequests: true,
+    canEditInventory: true, canSubmitFormRequests: true, canReviewFormRequests: true,
   },
   'Supervisor': {
     canCreate: true,  canEdit: true,  canDelete: true,  canApprove: true,
