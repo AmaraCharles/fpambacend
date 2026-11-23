@@ -33,6 +33,13 @@ describe('mailer', () => {
     expect(mailer.smtpProxy({ SMTP_PROXY: 'socks5://a:b@h:1', FIXIE_SOCKS_HOST: 'u:p@x:1080' })).toBe('socks5://a:b@h:1');
   });
 
+  it('builds TLS options for self-signed servers', () => {
+    expect(mailer.smtpTls({})).toEqual({});
+    expect(mailer.smtpTls({ SMTP_TLS_INSECURE: 'true' })).toEqual({ rejectUnauthorized: false });
+    expect(mailer.smtpTls({ SMTP_TLS_INSECURE: 'false' })).toEqual({});
+    expect(mailer.smtpTls({ SMTP_TLS_CA: 'A\\nB' })).toEqual({ ca: 'A\nB' });
+  });
+
   it('reports a transport failure instead of throwing', async () => {
     process.env.SMTP_HOST = 'fake';
     mailer._setTransportForTests({ sendMail: async () => { throw new Error('down'); } });

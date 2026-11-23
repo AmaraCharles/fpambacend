@@ -20,6 +20,12 @@
 //   QUOTAGUARDSTATIC_URL=http://user:pass@host:9293 (QuotaGuard Static; its
 //                                              SOCKS5 port 1080 is used)
 // None set (e.g. on Render, whose outbound IPs are already fixed) → direct.
+//
+// Servers with a self-signed certificate (the Galaxy Backbone relay):
+//   SMTP_TLS_CA="-----BEGIN CERTIFICATE-----\n..."  trust exactly this CA (preferred)
+//   SMTP_TLS_INSECURE=true   accept any certificate — the connection is still
+//                            encrypted but not verified, so it can be
+//                            intercepted. Temporary measure only.
 
 const nodemailer = require('nodemailer');
 
@@ -39,17 +45,32 @@ function smtpProxy(env = process.env) {
   return null;
 }
 
+/** TLS options from SMTP_TLS_CA / SMTP_TLS_INSECURE (empty when neither is set). */
+function smtpTls(env = process.env) {
+  const tls = {};
+  if (env.SMTP_TLS_CA) tls.ca = env.SMTP_TLS_CA.replace(/\\n/g, '\n');
+  if (env.SMTP_TLS_INSECURE === 'true') tls.rejectUnauthorized = false;
+  return tls;
+}
+
 function getTransport() {
   if (!transport) {
     const port = Number(process.env.SMTP_PORT || 587);
+    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
     const proxy = smtpProxy();
+    const tls = smtpTls();
     transport = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port,
-      secure: process.env.SMTP_SECURE === 'true' || port === 465,
+      secure,
+      // On a non-SSL port, refuse to send unless the server upgrades to TLS
+      // (STARTTLS), so the password never crosses the network unencrypted.
+      requireTLS: !secure,
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
       ...(proxy ? { proxy } : {}),
+      ...(Object.keys(tls).length ? { tls } : {}),
     });
+    if (tls.rejectUnauthorized === false) console.warn('[mail] SMTP_TLS_INSECURE=true — server certificate is NOT verified');
     if (proxy) {
       transport.set('proxy_socks_module', require('socks'));
       console.log(`[mail] sending through SOCKS proxy ${new URL(proxy).hostname}`);
@@ -110,4 +131,4 @@ async function sendMail({ to, subject, heading, lines, cta, footnote }) {
   }
 }
 
-module.exports = { sendMail, isConfigured, appUrl, render, smtpProxy, _setTransportForTests: t => { transport = t; } };
+module.exports = { sendMail, isConfigured, appUrl, render, smtpProxy, smtpTls, _setTransportForTests: t => { transport = t; } };
