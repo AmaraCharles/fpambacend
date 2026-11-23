@@ -321,6 +321,16 @@ const assetSchema = new Schema({
   photos:    [fileRefSchema],
   documents: [fileRefSchema],
 
+  // Shown on the public website's gallery (routes/gallery_routes.js). Opt-in
+  // per asset: only its name, type, location and general photos are published
+  // (never M&E report photos, MDA, condition, values or coordinates).
+  publicGallery: {
+    enabled:   { type: Boolean, default: false },
+    caption:   { type: String, default: '', maxlength: 300 },
+    updatedBy: { type: Types.ObjectId, ref: 'User' },
+    updatedAt: Date,
+  },
+
   xlDatasets: [{
     _id:          { type: Types.ObjectId, auto: true },
     fileId:       Types.ObjectId,
@@ -431,6 +441,7 @@ assetSchema.index(
   { unique: true, partialFilterExpression: { dupKey: { $type: 'string' } }, name: 'uniq_name_state_mda' }
 );
 assetSchema.index({ approvalStatus: 1 });
+assetSchema.index({ 'publicGallery.enabled': 1 });
 assetSchema.index({ submittedBy: 1 });
 assetSchema.index({ 'maintenanceLogs.date': 1 });
 assetSchema.index({ 'meReports.status': 1 });

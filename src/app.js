@@ -130,6 +130,8 @@ app.use('/api/data-quality',  require('./routes/data_quality_routes'));
 app.use('/api/public',        require('./routes/public_routes'));     // no sign-in: QR label scans
 app.use('/api/reports',       require('./routes/reports_routes'));
 app.use('/api/btm',           require('./routes/btm_routes'));
+app.use('/api/news',          require('./routes/news_routes'));
+app.use('/api/gallery',       require('./routes/gallery_routes'));
 
 // API documentation (OpenAPI + Swagger UI)
 app.get('/api/docs/openapi.json', (_req, res) => res.json(buildSpec('/api')));

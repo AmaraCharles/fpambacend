@@ -20,6 +20,9 @@ const auth = [authenticate, resolvePermissions, scopeFilter];
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toObjectId(str) {
+  // new ObjectId(undefined) silently generates a fresh random id, which tagged
+  // every uploaded photo with a non-existent M&E report. Only accept real ids.
+  if (typeof str !== 'string' || !ObjectId.isValid(str)) return null;
   try { return new ObjectId(str); } catch { return null; }
 }
 

@@ -4,6 +4,8 @@
 //
 // GET  /api/public/assets/:id           — the few details printed on an asset's QR label
 // POST /api/public/assets/:id/reports   — report a problem with an asset
+// GET  /api/public/gallery              — assets staff chose to show on the website gallery
+// GET  /api/public/photos/:fileId       — a gallery photo or a published news cover image
 //
 // Used by the page a scanned QR label opens (dashboard /a/<assetId>). Only
 // non-sensitive fields are returned, and both endpoints are rate-limited per IP.
@@ -13,8 +15,12 @@ const router = require('express').Router();
 const Asset = require('../models/Asset');
 const PublicReport = require('../models/PublicReport');
 const { idQuery } = require('../services/assetService');
-const { publicReadLimiter, publicReportLimiter } = require('../middleware/rateLimiter');
+const { publicReadLimiter, publicReportLimiter, publicPhotoLimiter } = require('../middleware/rateLimiter');
 const notify = require('../services/notify');
+const News = require('../models/News');
+const photoSvc = require('../services/photoService');
+const { Types } = require('mongoose');
+const { BLOCKED_TYPES, generalPhotos } = require('./gallery_routes');
 
 const PUBLIC_FIELDS = { assetId: 1, assetCode: 1, name: 1, type: 1, mda: 1, state: 1, lga: 1 };
 
@@ -28,6 +34,42 @@ router.get('/assets/:id', publicReadLimiter, async (req, res) => {
     if (!asset) return res.status(404).json({ error: 'No asset with that ID is on the register' });
     res.json({ asset: publicView(asset), categories: PublicReport.CATEGORIES });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Gallery ──────────────────────────────────────────────────────────────────
+// Viewer details only: name, type, state/LGA, caption and general photos.
+// Never MDA, condition, values, coordinates, documents or M&E report photos.
+router.get('/gallery', publicReadLimiter, async (_req, res) => {
+  try {
+    const assets = await Asset.find(
+      { 'publicGallery.enabled': true, type: { $nin: BLOCKED_TYPES }, approvalStatus: { $in: ['Approved', null] } },
+      { name: 1, type: 1, state: 1, lga: 1, 'publicGallery.caption': 1, photos: 1, 'meReports._id': 1 },
+    ).sort({ 'publicGallery.updatedAt': -1 }).limit(200).lean();
+    const items = assets.map(a => ({
+      id: String(a._id),
+      name: a.name, type: a.type || '', state: a.state || '', lga: a.lga || '',
+      caption: a.publicGallery?.caption || '',
+      photos: generalPhotos(a).slice(0, 8).map(p => `/public/photos/${p.fileId}`),
+    })).filter(i => i.photos.length);
+    res.set('Cache-Control', 'public, max-age=120');
+    res.json({ items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/photos/:fileId', publicPhotoLimiter, async (req, res) => {
+  try {
+    if (!Types.ObjectId.isValid(req.params.fileId)) return res.status(404).end();
+    const fileId = new Types.ObjectId(req.params.fileId);
+    const asset = await Asset.findOne(
+      { 'publicGallery.enabled': true, type: { $nin: BLOCKED_TYPES }, 'photos.fileId': fileId },
+      { photos: 1, 'meReports._id': 1 },
+    ).lean();
+    const allowed = (asset && generalPhotos(asset).some(p => String(p.fileId) === String(fileId)))
+      || await News.exists({ status: 'published', 'cover.fileId': fileId });
+    if (!allowed) return res.status(404).end();
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');   // shown on the public site's own domain
+    if (!(await photoSvc.streamPhoto(fileId, res))) res.status(404).end();
+  } catch (err) { if (!res.headersSent) res.status(500).json({ error: err.message }); }
 });
 
 const str = (v, max) => String(v ?? '').trim().slice(0, max);
