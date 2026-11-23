@@ -120,6 +120,9 @@ const ROUTES = [
   ['delete', '/news/{id}', 'News', 'Delete an article.'],
   ['post', '/news/{id}/cover', 'News', 'Upload the cover image.', { body: upload('photo') }],
   ['delete', '/news/{id}/cover', 'News', 'Remove the cover image.'],
+  ['post', '/access-requests', 'Access requests', 'Request an account: { name, email, organisation, requestedRole, reason }. Rate-limited.', { auth: false }],
+  ['get', '/access-requests', 'Access requests', 'List requests (?status=). System Admin.'],
+  ['patch', '/access-requests/{id}', 'Access requests', 'Approve (after creating the account) or decline: { status, note }. System Admin.'],
   // Building Training & Maintenance
   ['get', '/btm/summary', 'Training & Maintenance', 'Open/overdue work orders, plans due, training totals.'],
   ['get', '/btm/plans', 'Training & Maintenance', 'Planned maintenance tasks (?assetId=, ?all=1 for inactive too).'],

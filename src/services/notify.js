@@ -13,6 +13,7 @@
 //   Form request reviewed (status change)   The MDA agent                     ✓       ✓     ✓
 //   Certificate issued                      The MDA agent                     ✓       ✓     ✓
 //   Data-quality fix assigned               The assignee                      ✓       ✓
+//   Access request (register.html)          System Admins                     ✓       ✓
 //   Public report from a QR scan            The asset's MDA Agents, approvers,  ✓       ✓
 //                                           Building Training & Maintenance
 //   Account created / password reset        The user                                  ✓ (on request)
@@ -212,6 +213,21 @@ exports.publicReportSubmitted = report => run(async () => {
   ] }, PROJ).lean());
   if (agents.length) await deliver(agents, { ...base, link: '/portal?tab=reports', email: email('/portal?tab=reports') });
   if (staff.length) await deliver(staff, { ...base, link: '/reports', email: email('/reports') });
+});
+
+// ── Access requests (register.html) ──────────────────────────────────────────
+exports.accessRequested = request => run(async () => {
+  const admins = await usersForRoles(['System Admin']);
+  await deliver(admins, {
+    type: 'ACCESS_REQUESTED', title: 'New access request', icon: 'fa-user-plus', color: '#4A90D9',
+    body: `${request.name} (${request.organisation}) asked for ${request.requestedRole} access.`, link: '/users?tab=requests',
+    email: {
+      subject: `Access request: ${request.name}, ${request.organisation}`, heading: 'Someone asked for an FPAMAS account',
+      lines: [`${request.name} <${request.email}> from ${request.organisation} asked for ${request.requestedRole} access.`,
+        ...(request.reason ? [`Reason: ${request.reason}`] : [])],
+      cta: { label: 'Review access requests', url: `${appUrl()}/users?tab=requests` },
+    },
+  });
 });
 
 exports.accountCreated = (user, password) => sendMail({

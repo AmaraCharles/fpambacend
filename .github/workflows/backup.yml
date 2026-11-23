@@ -1,0 +1,93 @@
+# Daily encrypted database backup, kept as a GitHub Actions artifact.
+#
+# Setup (once): in this repo → Settings → Secrets and variables → Actions, add
+#   MONGO_URI          the production connection string (same as on Render/Heroku)
+#   BACKUP_PASSPHRASE  a long random passphrase; keep a copy somewhere safe
+#                      (without it the backups cannot be opened)
+#   MONGO_DB_NAME      only if MONGO_DB_NAME is set on the server: must be the same
+#                      value (the app and this job both default to 'assetspatial';
+#                      the database name inside MONGO_URI is ignored)
+# Atlas → Network Access must allow GitHub's runners to connect (they have no
+# fixed IP), or this job fails with a connection timeout.
+#
+# Restore: download the artifact (Actions → Backup database → a run → Artifacts),
+# then see docs/OPERATIONS.md §3 ("Restore from an automatic backup").
+#
+# GitHub emails the person who last edited this file when a scheduled run fails.
+name: Backup database
+on:
+  schedule:
+    - cron: '30 0 * * *'          # 01:30 WAT every day
+  workflow_dispatch:
+    inputs:
+      with_files:
+        description: 'Also back up photo/document contents (much larger)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      # Required by the app's config check; not used by the backup script.
+      JWT_SECRET: backup-job-placeholder-secret-not-used-0000
+      NODE_ENV: production
+    steps:
+      - name: Check secrets are set
+        run: |
+          missing=""
+          [ -n "$MONGO_URI" ] || missing="$missing MONGO_URI"
+          [ -n "$BACKUP_PASSPHRASE" ] || missing="$missing BACKUP_PASSPHRASE"
+          if [ -n "$missing" ]; then
+            echo "::error::Add these repository secrets first:$missing (see the top of .github/workflows/backup.yml)"
+            exit 1
+          fi
+          [ -n "$MONGO_DB_NAME" ] || unset MONGO_DB_NAME
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --legacy-peer-deps --omit=dev
+      - name: Back up
+        run: |
+          stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          echo "STAMP=$stamp" >> "$GITHUB_ENV"
+          [ -n "$MONGO_DB_NAME" ] || unset MONGO_DB_NAME
+          flags=""
+          [ "${{ inputs.with_files }}" = "true" ] && flags="--with-files"
+          node scripts/backup.js --out "backup/fpamas-backup-$stamp.json" $flags
+      - name: Compress and encrypt
+        run: |
+          cd backup
+          gzip -9 "fpamas-backup-$STAMP.json"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -in "fpamas-backup-$STAMP.json.gz" -out "fpamas-backup-$STAMP.json.gz.enc" \
+            -pass env:BACKUP_PASSPHRASE
+          rm "fpamas-backup-$STAMP.json.gz"
+          sha256sum "fpamas-backup-$STAMP.json.gz.enc" > "fpamas-backup-$STAMP.sha256"
+          ls -lh
+      - name: Check the backup opens
+        run: |
+          # Decrypt to a temp file (not a pipe into head: steps run with pipefail).
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in "backup/fpamas-backup-$STAMP.json.gz.enc" \
+            -out "$RUNNER_TEMP/check.json.gz" -pass env:BACKUP_PASSPHRASE
+          gunzip -t "$RUNNER_TEMP/check.json.gz"
+          gunzip -c "$RUNNER_TEMP/check.json.gz" > "$RUNNER_TEMP/check.json"
+          grep -q '"collections"' "$RUNNER_TEMP/check.json"
+          rm -f "$RUNNER_TEMP/check.json" "$RUNNER_TEMP/check.json.gz"
+          echo "Backup decrypts and looks valid"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpamas-backup-${{ env.STAMP }}
+          path: backup/
+          retention-days: 30
+          if-no-files-found: error

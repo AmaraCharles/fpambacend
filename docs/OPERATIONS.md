@@ -31,12 +31,24 @@ Do this now if a secret was ever shared in chat, email or a log, and once a year
 
 ## 3. Backups and restore
 
-- **Automatic (recommended):** Atlas Cloud Backup on a paid cluster tier gives daily snapshots with point-in-time restore. The free tier has no automatic backups.
+- **Automatic, daily (set up):** the *Backup database* GitHub workflow (`.github/workflows/backup.yml`) runs at 01:30 WAT, backs up every collection, compresses and encrypts it (AES-256, passphrase from the `BACKUP_PASSPHRASE` secret), checks it decrypts, and keeps it as a workflow artifact for 30 days. It needs the repository secrets `MONGO_URI` and `BACKUP_PASSPHRASE` (and `MONGO_DB_NAME` if the server sets one), and Atlas Network Access must allow GitHub's runners. Run it by hand from Actions → *Backup database* → *Run workflow*; tick *with files* for photo/document contents too. A failed scheduled run emails whoever last edited the workflow.
+- **Atlas Cloud Backup** on a paid cluster tier adds snapshots with point-in-time restore. The free tier has none.
 - **Manual, from the dashboard:** System health → *Download backup* (System Admin). Extended JSON of every collection; photo/document contents are not included.
 - **Manual, from a terminal:** `node scripts/backup.js` (add `--with-files` for photo/document contents).
 - **Restore:** `node scripts/restore.js <file>` shows what's in the backup; add `--yes` to restore into empty collections, `--yes --drop` to replace. **Practise it** on a spare database (`MONGO_DB_NAME=assetspatial_restore_test`) — a backup you haven't restored isn't proven.
 
 Backups contain password hashes: store them encrypted, not in email or chat.
+
+**Restore from an automatic backup:** download the artifact zip from the workflow run and unzip it, then
+
+```bash
+sha256sum -c fpamas-backup-*.sha256                       # file arrived intact
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in fpamas-backup-<time>.json.gz.enc   -out backup.json.gz -pass pass:'<BACKUP_PASSPHRASE>'     # prompts if you leave -pass off
+gunzip backup.json.gz
+node scripts/restore.js backup.json                       # preview; then --yes (or --yes --drop)
+```
+
+Keep the passphrase somewhere other than GitHub (e.g. the department's password manager): without it the backups can't be opened.
 
 ## 4. Monitoring
 

@@ -132,6 +132,7 @@ app.use('/api/reports',       require('./routes/reports_routes'));
 app.use('/api/btm',           require('./routes/btm_routes'));
 app.use('/api/news',          require('./routes/news_routes'));
 app.use('/api/gallery',       require('./routes/gallery_routes'));
+app.use('/api/access-requests', require('./routes/access_requests_routes'));
 
 // API documentation (OpenAPI + Swagger UI)
 app.get('/api/docs/openapi.json', (_req, res) => res.json(buildSpec('/api')));
